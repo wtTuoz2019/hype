@@ -1,0 +1,22 @@
+{% extends "plaza/base.html" %}
+{% block title %}推广{% endblock %}
+{% block body %}
+  <h1>推广</h1>
+  <div class="card">
+    <div class="metric"><span class="sub">我的邀请码</span><b style="font-size:28px">{{ profile.invite_code }}</b></div>
+    <p class="note">注册链接带上这个码，新用户就挂在你名下。分佣流水表已经留好，等跟单真的产生费用后再按比例入账，现在还不会分钱。</p>
+  </div>
+  <div class="card">
+    <h2>邀请来的用户</h2>
+    <table>
+      <thead><tr><th>账号</th><th>注册时间</th></tr></thead>
+      <tbody>
+        {% for person in invitees %}
+          <tr><td>{{ person.username }}</td><td class="sub">{{ person.date_joined }}</td></tr>
+        {% empty %}
+          <tr><td colspan="2" class="sub">还没有人通过你的邀请码注册。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

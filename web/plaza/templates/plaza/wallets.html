@@ -1,0 +1,40 @@
+{% extends "plaza/base.html" %}
+{% block title %}监控钱包{% endblock %}
+{% block body %}
+  <h1>监控钱包</h1>
+  <p class="note">这里的名单会在几秒内被监控进程读到。停用后不再订阅这个地址。跟单仍然只记录选择，不下单。</p>
+  <div class="card">
+    <h2>添加</h2>
+    {% if error %}<p class="err">{{ error }}</p>{% endif %}
+    <form method="post" action="{% url 'wallet_add' %}">
+      {% csrf_token %}
+      <label>名字</label>
+      <input name="name" value="{{ name|default:'' }}" maxlength="40" placeholder="例如 主号">
+      <label>Hyperliquid 地址</label>
+      <input name="address" value="{{ address|default:'' }}" placeholder="0x 开头的 42 位地址" required>
+      <div style="margin-top:16px"><button type="submit">添加并开始监控</button></div>
+    </form>
+  </div>
+  <div class="card">
+    <table>
+      <thead><tr><th>名字</th><th>地址</th><th>状态</th><th></th></tr></thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            <td>{{ row.name|default:"未命名" }}</td>
+            <td><code>{{ row.address }}</code></td>
+            <td>{% if row.enabled %}监控中{% else %}已停{% endif %}</td>
+            <td>
+              <form method="post" action="{% url 'wallet_toggle' row.id %}">
+                {% csrf_token %}
+                <button class="ghost" type="submit">{% if row.enabled %}停用{% else %}启用{% endif %}</button>
+              </form>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="4" class="sub">还没有钱包。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

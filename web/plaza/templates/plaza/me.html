@@ -1,0 +1,22 @@
+{% extends "plaza/base.html" %}
+{% block title %}我的跟单{% endblock %}
+{% block body %}
+  <h1>我的跟单</h1>
+  <p class="note">这里是你点过跟单的钱包。下单还没接，状态只表示你的选择。</p>
+  <div class="card">
+    <table>
+      <thead><tr><th>钱包</th><th>地址</th><th></th></tr></thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            <td>{{ row.leader.name|default:"未命名" }}</td>
+            <td><code>{{ row.leader.address }}</code></td>
+            <td><a href="{% url 'detail' row.leader.id %}">详情</a></td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="3" class="sub">还没有选择跟单。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

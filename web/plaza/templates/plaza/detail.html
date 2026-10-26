@@ -1,0 +1,104 @@
+{% extends "plaza/base.html" %}
+{% block title %}{{ leader.name|default:"钱包" }}{% endblock %}
+{% block body %}
+  <p class="sub"><a href="/">跟单广场</a></p>
+  <div class="who">
+    <h1>{{ leader.name|default:"未命名" }}</h1>
+    {% if followed %}<span class="tag">已选择跟单</span>{% endif %}
+  </div>
+  <p class="sub"><code>{{ leader.address }}</code>{% if updated %} · 更新于 {{ updated }}{% endif %}</p>
+  {% if waiting %}<p class="note">收益正在后台刷新。持仓和平仓会在刷新完成后出现。</p>{% endif %}
+  <div class="tabs">
+    {% for key, label in periods %}
+      <a href="?range={{ key }}" class="{% if range == key %}on{% endif %}">{{ label }}</a>
+    {% endfor %}
+  </div>
+  <div class="card">
+    {% if not waiting %}
+    <div class="stats">
+      <div class="metric"><span>收益率</span><b class="{% if pack.pnl_up %}up{% else %}down{% endif %}">{{ pack.roi }}</b></div>
+      <div class="metric"><span>收益 USDC</span><b class="{% if pack.pnl_up %}up{% else %}down{% endif %}">{{ pack.pnl }}</b></div>
+      <div class="metric"><span>永续权益</span><b>{{ pack.equity }}</b></div>
+      <div class="metric"><span>成交额</span><b>{{ pack.volume }}</b></div>
+    </div>
+    <div style="margin-top:16px">{{ pack.chart|safe }}</div>
+    {% endif %}
+    {% if error %}<p class="err">{{ error }}</p>{% endif %}
+    <form method="post" action="{% url 'follow' leader.id %}" style="margin-top:16px">
+      {% csrf_token %}
+      {% if user.is_authenticated %}
+        <button type="submit">{% if followed %}取消跟单{% else %}跟单{% endif %}</button>
+        <span class="sub">只记录选择，暂不下单。</span>
+      {% else %}
+        <a href="{% url 'login' %}">登录后决定是否跟单</a>
+      {% endif %}
+    </form>
+  </div>
+  <div class="card">
+    <div class="metrics">
+      <div class="metric"><span>未实现盈亏</span><b class="{% if upnl_up %}up{% else %}down{% endif %}">{{ upnl }}</b></div>
+      <div class="metric"><span>近期胜率</span><b>{{ win_rate }}</b></div>
+      <div class="metric"><span>统计平仓笔数</span><b>{{ close_count }}</b></div>
+    </div>
+  </div>
+  <div class="card">
+    <h2>实时信号</h2>
+    <p class="sub"><a href="{% url 'signals' %}?leader={{ leader.id }}">打开完整信号页</a></p>
+    <table>
+      <thead><tr><th>时间</th><th>币种</th><th>动作</th><th>仓位</th><th>均价</th></tr></thead>
+      <tbody>
+        {% for row in signals %}
+          <tr>
+            <td class="sub">{{ row.when }}</td>
+            <td>{{ row.coin }}</td>
+            <td>{{ row.label }}</td>
+            <td>{{ row.prev_szi }} → {{ row.szi }}</td>
+            <td>{{ row.px }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="5" class="sub">还没有信号。新的开平仓会出现在这里。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card">
+    <h2>当前持仓</h2>
+    <table>
+      <thead><tr><th>币种</th><th>方向</th><th>张数</th><th>开仓价</th><th>未实现</th></tr></thead>
+      <tbody>
+        {% for pos in positions %}
+          <tr>
+            <td>{{ pos.coin }}</td>
+            <td>{% if pos.szi > 0 %}多{% else %}空{% endif %}</td>
+            <td>{{ pos.szi }}</td>
+            <td>{{ pos.entry }}</td>
+            <td class="{% if pos.upnl >= 0 %}up{% else %}down{% endif %}">{{ pos.upnl }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="5" class="sub">没有持仓</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card">
+    <h2>近期平仓</h2>
+    <table>
+      <thead><tr><th>时间</th><th>币种</th><th>动作</th><th>价格</th><th>数量</th><th>已实现</th></tr></thead>
+      <tbody>
+        {% for row in closes %}
+          <tr>
+            <td class="sub">{{ row.when }}</td>
+            <td>{{ row.coin }}</td>
+            <td>{{ row.dir }}</td>
+            <td>{{ row.px }}</td>
+            <td>{{ row.sz }}</td>
+            <td class="{% if row.pnl_up %}up{% else %}down{% endif %}">{{ row.pnl_text }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="6" class="sub">没有平仓记录</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="sub">胜率按最近一批平仓计算，不是开户至今的全部。</p>
+  </div>
+{% endblock %}

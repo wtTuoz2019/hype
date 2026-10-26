@@ -1,0 +1,100 @@
+{% extends "plaza/base.html" %}
+{% block title %}实时信号{% endblock %}
+{% block body %}
+  <h1>实时信号</h1>
+  <p class="note">
+    共 {{ total }} 条。
+    {% if leader %}只看 {{ leader.name|default:leader.address }}。 <a href="{% url 'signals' %}">看全部</a>{% else %}全部监控钱包的永续开、加、减、平。{% endif %}
+    {% if page.number == 1 %}第一页每 2 秒补上新信号。没新信号时页面不动。{% endif %}
+  </p>
+  <form class="filters" method="get" action="{% url 'signals' %}">
+    {% if leader %}<input type="hidden" name="leader" value="{{ leader.id }}">{% endif %}
+    <div>
+      <label>币种</label>
+      <input name="coin" value="{{ coin }}" placeholder="例如 HYPE">
+    </div>
+    <div>
+      <label>动作</label>
+      <select name="label">
+        <option value="">全部</option>
+        {% for item in labels %}
+          <option value="{{ item }}" {% if label == item %}selected{% endif %}>{{ item }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit">筛选</button>
+  </form>
+  <div class="card">
+    <table>
+      <thead>
+        <tr><th>时间</th><th>钱包</th><th>币种</th><th>动作</th><th>仓位</th><th>均价</th></tr>
+      </thead>
+      <tbody id="sig-body">
+        {% for row in rows %}
+          <tr>
+            <td class="sub">{{ row.when }}</td>
+            <td><a href="{% url 'detail' row.leader_id %}">{{ row.leader.name|default:"未命名" }}</a></td>
+            <td>{{ row.coin }}</td>
+            <td>{{ row.label }}</td>
+            <td>{{ row.prev_szi }} → {{ row.szi }}</td>
+            <td>{{ row.px }}</td>
+          </tr>
+        {% empty %}
+          <tr id="sig-empty"><td colspan="6" class="sub">还没有信号。监控已经和这个页面连在一起，有新的仓位变化会自动出现。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="tabs" style="margin-top:16px">
+      {% if page.has_previous %}
+        <a href="?page={{ page.previous_page_number }}{% if kept %}&{{ kept }}{% endif %}">上一页</a>
+      {% endif %}
+      <span class="sub">第 {{ page.number }} / {{ page.paginator.num_pages }} 页</span>
+      {% if page.has_next %}
+        <a href="?page={{ page.next_page_number }}{% if kept %}&{{ kept }}{% endif %}">下一页</a>
+      {% endif %}
+    </div>
+  </div>
+  {% if page.number == 1 %}
+  <script>
+    let after = {{ latest|default:0 }};
+    const leader = "{% if leader %}{{ leader.id }}{% endif %}";
+    const coin = "{{ coin|escapejs }}";
+    const label = "{{ label|escapejs }}";
+    const body = document.getElementById("sig-body");
+    function cell(text) {
+      const td = document.createElement("td");
+      td.textContent = text;
+      return td;
+    }
+    async function pull() {
+      const query = new URLSearchParams({after: String(after)});
+      if (leader) query.set("leader", leader);
+      if (coin) query.set("coin", coin);
+      if (label) query.set("label", label);
+      const response = await fetch("{% url 'signal_feed' %}?" + query.toString());
+      if (!response.ok) return;
+      const data = await response.json();
+      if (!data.signals.length) return;
+      const empty = document.getElementById("sig-empty");
+      if (empty) empty.remove();
+      data.signals.slice().reverse().forEach((row) => {
+        const tr = document.createElement("tr");
+        tr.appendChild(cell(row.when));
+        const who = document.createElement("td");
+        const link = document.createElement("a");
+        link.href = "/leaders/" + row.leader_id + "/";
+        link.textContent = row.name;
+        who.appendChild(link);
+        tr.appendChild(who);
+        tr.appendChild(cell(row.coin));
+        tr.appendChild(cell(row.label));
+        tr.appendChild(cell(row.prev_szi + " → " + row.szi));
+        tr.appendChild(cell(row.px));
+        body.insertBefore(tr, body.firstChild);
+      });
+      after = data.latest;
+    }
+    setInterval(() => { pull().catch(() => {}); }, 2000);
+  </script>
+  {% endif %}
+{% endblock %}
