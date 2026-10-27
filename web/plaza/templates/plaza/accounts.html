@@ -1,0 +1,53 @@
+{% extends "plaza/base.html" %}
+{% block title %}交易所{% endblock %}
+{% block body %}
+  <h1>交易所账户</h1>
+  <p class="note">支持币安和 Gate 的合约密钥。保存后只留密文，页面以后只看密钥后四位。主密钥不在这个页面上。</p>
+  <div class="card">
+    <h2>添加</h2>
+    {% if error %}<p class="err">{{ error }}</p>{% endif %}
+    <form method="post" action="{% url 'account_add' %}">
+      {% csrf_token %}
+      <label>名称</label>
+      <input name="name" value="{{ name|default:'' }}" maxlength="40" placeholder="例如 币安主号">
+      <label>交易所</label>
+      <select name="venue" required>
+        {% for value, label in venues %}
+          <option value="{{ value }}" {% if venue == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <label>API Key</label>
+      <input name="api_key" autocomplete="off" required>
+      <label>API Secret</label>
+      <input name="api_secret" type="password" autocomplete="new-password" required>
+      <div style="margin-top:16px"><button type="submit">保存</button></div>
+    </form>
+  </div>
+  <div class="card">
+    <table>
+      <thead><tr><th>名称</th><th>交易所</th><th>密钥</th><th>状态</th><th></th></tr></thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            <td>{{ row.name }}</td>
+            <td>{{ row.get_venue_display }}</td>
+            <td>****{{ row.key_last4 }}</td>
+            <td>{% if row.enabled %}可用{% else %}已停{% endif %}</td>
+            <td>
+              <form method="post" action="{% url 'account_toggle' row.id %}" style="display:inline">
+                {% csrf_token %}
+                <button class="ghost" type="submit">{% if row.enabled %}停用{% else %}启用{% endif %}</button>
+              </form>
+              <form method="post" action="{% url 'account_delete' row.id %}" style="display:inline">
+                {% csrf_token %}
+                <button class="ghost" type="submit">删除</button>
+              </form>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="5" class="sub">还没有交易所账户。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

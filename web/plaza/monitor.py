@@ -9,6 +9,7 @@ from datetime import timedelta
 
 _STARTED = False
 _REFRESH_SEC = 20
+_HOT_SEC = 6 * 60 * 60
 
 
 def refresh_due() -> None:
@@ -65,6 +66,26 @@ def _refresh_loop() -> None:
         time.sleep(_REFRESH_SEC)
 
 
+def _hot_loop() -> None:
+    from django.db import close_old_connections
+
+    from plaza.hyperbot import fetch_hot, sync_hot
+
+    while True:
+        close_old_connections()
+        try:
+            result = sync_hot(fetch_hot())
+            print(
+                "热门地址同步 "
+                f"保留 {result['kept']} 新增 {result['created']} "
+                f"停用 {result['disabled']}",
+                flush=True,
+            )
+        except Exception as exc:
+            print(f"热门地址同步失败: {exc}", flush=True)
+        time.sleep(_HOT_SEC)
+
+
 def start_monitor() -> None:
     global _STARTED
     if _STARTED:
@@ -85,7 +106,11 @@ def start_monitor() -> None:
             print(f"历史信号写入 {count} 条", flush=True)
         except Exception as exc:
             print(f"历史信号补写失败: {exc}", flush=True)
+        from plaza.copy_run import start_copy_worker
+
+        start_copy_worker()
         threading.Thread(target=_refresh_loop, name="hype-stats", daemon=True).start()
+        threading.Thread(target=_hot_loop, name="hype-hot", daemon=True).start()
         hub = SignalHub(debounce=3.0, as_json=False)
         hub.run()
 

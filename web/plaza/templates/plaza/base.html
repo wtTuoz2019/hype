@@ -1,67 +1,54 @@
-<!DOCTYPE html>
+{% load static %}
+<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}跟单广场{% endblock %}</title>
+  <title>{% block title %}AlphaScope{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'style.css' %}">
   <style>
-    :root { --bg:#0b0e11; --card:#1e2329; --line:#2b3139; --text:#eaecef; --muted:#848e9c; --yellow:#f0b90b; --green:#0ecb81; --red:#f6465d; }
-    * { box-sizing: border-box; }
-    body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
-    header { display:flex; justify-content:space-between; align-items:center; padding:16px 28px; border-bottom:1px solid var(--line); }
-    header b { font-size:16px; }
-    nav { display:flex; gap:16px; align-items:center; }
-    a { color:var(--yellow); text-decoration:none; }
-    main { max-width:1080px; margin:0 auto; padding:28px 20px 60px; }
-    .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px; margin-bottom:16px; }
-    h1 { font-size:22px; margin:0 0 8px; }
-    .note, .sub { color:var(--muted); }
-    .sub { font-size:12px; }
-    label { display:block; color:var(--muted); margin:12px 0 6px; }
-    input, select { width:100%; background:#0b0e11; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
-    .filters { display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; margin:12px 0 16px; }
-    .filters label { margin:0 0 6px; }
-    .filters input, .filters select { width:auto; min-width:140px; }
-    button { background:var(--yellow); color:#1e2329; border:0; border-radius:8px; padding:10px 16px; font-weight:700; cursor:pointer; }
-    button.ghost { background:transparent; color:var(--text); border:1px solid var(--line); }
-    .leader { display:grid; grid-template-columns:minmax(0,1fr) 240px; gap:12px 20px; align-items:center; }
-    .who { display:flex; gap:8px; align-items:center; margin-bottom:8px; }
-    .who strong { font-size:18px; }
-    .metrics, .stats { display:flex; gap:28px; flex-wrap:wrap; }
-    .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
-    .metric span { color:var(--muted); font-size:12px; }
-    .metric b { display:block; font-size:22px; font-variant-numeric:tabular-nums; }
-    .up { color:var(--green); } .down { color:var(--red); }
-    .chart, .spark { width:100%; height:auto; display:block; }
-    .actions { display:flex; gap:8px; justify-content:flex-end; grid-column:1 / -1; }
-    .tabs { display:flex; gap:8px; margin:8px 0 12px; }
-    .tabs a { color:var(--muted); border:1px solid var(--line); border-radius:8px; padding:6px 12px; }
-    .tabs a.on { color:#1e2329; background:var(--yellow); border-color:var(--yellow); }
-    .tag { border-radius:999px; padding:2px 8px; font-size:12px; color:var(--green); background:rgba(14,203,129,.12); }
-    table { width:100%; border-collapse:collapse; }
-    th, td { text-align:left; padding:10px 8px; border-bottom:1px solid var(--line); }
-    th { color:var(--muted); font-weight:600; }
-    .err { color:var(--red); }
-    code { color:var(--yellow); }
-    @media (max-width:720px) { .leader, .stats { grid-template-columns:1fr; } }
+    .card{background:#fff;border:1px solid #e6eaf0;border-radius:12px;padding:18px;margin:0 0 14px}
+    .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
+    .metric span,.note,.sub{color:#718095;font-size:13px}
+    .metric b{display:block;font-size:20px;margin-top:4px}
+    .up{color:#0d9970}.down{color:#d55157}
+    table{width:100%;border-collapse:collapse;font-size:13px}
+    th,td{text-align:left;padding:8px 6px;border-bottom:1px solid #edf1f6}
+    input,select{border:1px solid #dbe3ef;border-radius:9px;padding:10px 12px;background:#fff;color:#192637}
+    .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .err{color:#d55157;font-size:13px}
+    .chart{width:100%;height:auto}
+    .messages{list-style:none;padding:0}
+    .messages li{background:#fff9ec;border:1px solid #ffe5ad;border-radius:10px;padding:8px 12px;margin-bottom:10px}
   </style>
 </head>
 <body>
   <header>
-    <b><a href="/" style="color:inherit">跟单广场</a></b>
-    <nav>
-      <a href="{% url 'signals' %}">实时信号</a>
-      {% if user.is_staff %}<a href="{% url 'wallets' %}">钱包</a>{% endif %}
-      {% if user.is_authenticated %}
-        <a href="{% url 'me' %}">我的跟单</a>
-        <a href="{% url 'invite' %}">推广</a>
-        <a href="{% url 'logout' %}">退出</a>
-      {% else %}
-        <a href="{% url 'login' %}">登录</a>
-        <a href="{% url 'register' %}">注册</a>
-      {% endif %}
-    </nav>
+    <div class="nav">
+      <a class="brand" href="{% url 'home' %}">AlphaScope</a>
+      <div class="links">
+        <a href="{% url 'home' %}" {% if request.resolver_match.url_name == "home" %}class="active"{% endif %}>开单快讯</a>
+        <a href="{% url 'board' %}" {% if request.resolver_match.url_name == "board" %}class="active"{% endif %}>钱包排行榜</a>
+        <a href="{% url 'signals' %}">信号列表</a>
+        {% if user.is_authenticated %}
+          <a href="{% url 'me' %}">我的跟单</a>
+          <a href="{% url 'accounts' %}">交易所</a>
+          {% if user.is_staff %}<a href="{% url 'wallets' %}">钱包</a>{% endif %}
+          <a href="{% url 'logout' %}">退出</a>
+        {% else %}
+          <a href="{% url 'login' %}">登录</a>
+          <a href="{% url 'register' %}">注册</a>
+        {% endif %}
+      </div>
+    </div>
   </header>
-  <main>{% block body %}{% endblock %}</main>
+  <main>
+    {% if messages %}
+      <ul class="messages">
+        {% for message in messages %}<li>{{ message }}</li>{% endfor %}
+      </ul>
+    {% endif %}
+    {% block body %}{% endblock %}
+  </main>
 </body>
 </html>

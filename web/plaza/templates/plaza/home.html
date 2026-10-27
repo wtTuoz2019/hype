@@ -1,58 +1,106 @@
 {% extends "plaza/base.html" %}
-{% block title %}跟单广场{% endblock %}
+{% block title %}开单快讯 · AlphaScope{% endblock %}
 {% block body %}
-  <h1>跟单广场</h1>
-  <p class="note">每个卡片是一个 Hyperliquid 永续钱包。曲线和收益按币安的 7 日口径展示。点跟单只记下你的选择，还不会下单。</p>
-  {% for card in cards %}
-    <article class="card leader">
-      <div>
-        <div class="who">
-          <strong>{{ card.leader.name|default:"未命名" }}</strong>
-          {% if card.followed %}<span class="tag">已选择跟单</span>{% endif %}
-        </div>
-        <div class="sub"><code>{{ card.leader.address }}</code></div>
-        {% if card.waiting %}
-          <p class="note" style="margin-top:14px">收益正在后台刷新，打开页面不再等待链上接口。</p>
-        {% else %}
-          <div class="metrics" style="margin-top:14px">
-            <div class="metric"><span>7日收益率</span><b class="{% if card.pnl_up %}up{% else %}down{% endif %}">{{ card.roi }}</b></div>
-            <div class="metric"><span>7日收益 USDC</span><b class="{% if card.pnl_up %}up{% else %}down{% endif %}">{{ card.pnl }}</b></div>
-            <div class="metric"><span>永续权益</span><b>{{ card.equity }}</b></div>
-          </div>
-          {% if card.updated %}<p class="sub">更新于 {{ card.updated }}</p>{% endif %}
-        {% endif %}
-        {% if card.error %}<p class="err">{{ card.error }}</p>{% endif %}
-      </div>
-      <div>{{ card.spark|safe }}</div>
-      <div class="actions">
-        <a href="{% url 'detail' card.leader.id %}">详情</a>
-        <a href="{% url 'signals' %}?leader={{ card.leader.id }}">信号</a>
-      </div>
-    </article>
-  {% empty %}
-    <p class="note">还没有带单钱包。</p>
-  {% endfor %}
-  <div class="card">
-    <div class="who">
-      <strong>最新信号</strong>
-      <a href="{% url 'signals' %}">完整列表</a>
+  <div class="home-head">
+    <div>
+      <div class="eyebrow">REALTIME FEED</div>
+      <h1>开单快讯</h1>
     </div>
-    <table>
-      <thead><tr><th>时间</th><th>钱包</th><th>币种</th><th>动作</th><th>仓位</th><th>均价</th></tr></thead>
-      <tbody>
-        {% for row in latest_signals %}
-          <tr>
-            <td class="sub">{{ row.when }}</td>
-            <td><a href="{% url 'detail' row.leader_id %}">{{ row.leader.name|default:"未命名" }}</a></td>
-            <td>{{ row.coin }}</td>
-            <td>{{ row.label }}</td>
-            <td>{{ row.prev_szi }} → {{ row.szi }}</td>
-            <td>{{ row.px }}</td>
-          </tr>
-        {% empty %}
-          <tr><td colspan="6" class="sub">还没有信号。</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <a class="head-link" href="{% url 'signals' %}">完整信号列表 →</a>
   </div>
+  <section class="panel direction-compact">
+    <div class="funds-inline">
+      <div class="funds-title">今日开仓资金 <span class="mini-help">按信号名义价值，多空钱包不重复</span></div>
+      <div class="funds-side funds-long">多 <b>{{ long_funds }}</b></div>
+      <div class="funds-side funds-short">空 <b>{{ short_funds }}</b></div>
+      <div class="funds-meter">
+        <div class="direction-bar"><div class="direction-long-bar" style="width:{{ long_share }}%"></div></div>
+        <div class="direction-percent"><span>多 {{ long_share }}%</span><span>空 {{ short_share }}%</span></div>
+      </div>
+      <details class="funds-details">
+        <summary>明细</summary>
+        <div class="funds-detail-inner">
+          <span>做多钱包 {{ long_wallets }} 个</span>
+          <span>做空钱包 {{ short_wallets }} 个</span>
+          <span>多空差额 {{ fund_gap }}</span>
+          <small>只统计今天的开仓和加仓。页面读本地记录，链上刷新在后台。</small>
+        </div>
+      </details>
+    </div>
+  </section>
+  <div class="news-layout">
+    <section class="panel flash-panel">
+      <div class="pad">
+        <div class="topline"><h2>最新开单</h2><span class="status"><span class="dot"></span>后台监控中</span></div>
+      </div>
+      <div class="timeline" id="feed">
+        {% for row in rows %}
+          <article class="event">
+            <div class="clock">{{ row.when }}</div>
+            <div class="event-main">
+              <div class="line">
+                <span class="symbol">{{ row.coin }}</span>
+                <span class="action {% if '空' in row.label %}short{% else %}long{% endif %}">{{ row.label }}</span>
+              </div>
+              <div class="name">{{ row.leader.name|default:row.leader.address }}</div>
+              <div class="meta">{{ row.prev_szi }} → {{ row.szi }} · 价格 {{ row.px }}</div>
+            </div>
+            <div class="right"><a class="btn secondary" href="{% url 'detail' row.leader_id %}">查看</a></div>
+          </article>
+        {% empty %}
+          <div class="empty">还没有信号。后台连上 Hyperliquid 后会出现在这里。</div>
+        {% endfor %}
+      </div>
+    </section>
+    <aside class="panel important-panel">
+      <div class="important-heading"><span class="important-accent"></span><h2>今日最大开仓</h2></div>
+      {% if top %}
+        <div class="biggest-open">
+          <div class="biggest-label">名义价值</div>
+          <span class="biggest-amount">{{ top.text }}</span>
+          <div class="biggest-coin"><b>{{ top.row.coin }}</b><span class="action {% if '空' in top.row.label %}short{% else %}long{% endif %}">{{ top.row.label }}</span></div>
+          <div class="biggest-name">{{ top.row.leader.name|default:top.row.leader.address }}</div>
+          <div class="biggest-time">{{ top.row.when }}</div>
+          <a class="btn secondary important-sub" href="{% url 'detail' top.row.leader_id %}">看这个钱包</a>
+        </div>
+      {% else %}
+        <div class="empty">今天还没有开仓</div>
+      {% endif %}
+      <div class="important-secondary">
+        <h3>其后开仓</h3>
+        {% for item in opens %}
+          {% if not forloop.first %}
+            <div class="top-open-row">
+              <span class="top-place">{{ forloop.counter }}</span>
+              <div><b>{{ item.row.coin }} {{ item.row.label }}</b><small>{{ item.row.leader.name|default:item.row.leader.address }}</small></div>
+              <strong>{{ item.text }}</strong>
+            </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+      <div class="important-footnote">跟单下单在后台执行，这个页面只展示已经记下来的信号。</div>
+    </aside>
+  </div>
+  <script>
+    let latest = {{ latest|default:0 }};
+    function paint(row) {
+      const short = String(row.label || "").includes("空");
+      return `<article class="event"><div class="clock">${row.when || ""}</div><div class="event-main"><div class="line"><span class="symbol">${row.coin || ""}</span><span class="action ${short ? "short" : "long"}">${row.label || ""}</span></div><div class="name">${row.name || ""}</div><div class="meta">${row.prev_szi} → ${row.szi} · 价格 ${row.px}</div></div><div class="right"><a class="btn secondary" href="/leaders/${row.leader_id}/">查看</a></div></article>`;
+    }
+    async function poll() {
+      try {
+        const response = await fetch("/signals/feed/?after=" + latest);
+        const data = await response.json();
+        if (data.signals && data.signals.length) {
+          const feed = document.getElementById("feed");
+          const empty = feed.querySelector(".empty");
+          if (empty) empty.remove();
+          data.signals.reverse().forEach((row) => feed.insertAdjacentHTML("afterbegin", paint(row)));
+          latest = data.latest;
+        }
+      } catch (error) {}
+      setTimeout(poll, 2000);
+    }
+    poll();
+  </script>
 {% endblock %}

@@ -24,11 +24,29 @@
     <div style="margin-top:16px">{{ pack.chart|safe }}</div>
     {% endif %}
     {% if error %}<p class="err">{{ error }}</p>{% endif %}
+    <p class="sub">{{ rules }}</p>
     <form method="post" action="{% url 'follow' leader.id %}" style="margin-top:16px">
       {% csrf_token %}
       {% if user.is_authenticated %}
-        <button type="submit">{% if followed %}取消跟单{% else %}跟单{% endif %}</button>
-        <span class="sub">只记录选择，暂不下单。</span>
+        {% if followed and follow_row.account %}
+          <p class="sub">使用 {{ follow_row.account.get_venue_display }} · {{ follow_row.account.name }} · ****{{ follow_row.account.key_last4 }}</p>
+          <input type="hidden" name="stop" value="1">
+          <button type="submit">取消跟单</button>
+          <span class="sub">之后的新信号会在后台下单。</span>
+        {% elif accounts %}
+          <label>跟单账户</label>
+          <select name="account" required>
+            {% for item in accounts %}
+              <option value="{{ item.id }}">{{ item.get_venue_display }} · {{ item.name }} · ****{{ item.key_last4 }}</option>
+            {% endfor %}
+          </select>
+          <div style="margin-top:12px">
+            <button type="submit">跟单</button>
+            <span class="sub">只跟点下之后的新信号，不补他已有的仓。</span>
+          </div>
+        {% else %}
+          <a href="{% url 'accounts' %}">先添加币安或 Gate 密钥</a>
+        {% endif %}
       {% else %}
         <a href="{% url 'login' %}">登录后决定是否跟单</a>
       {% endif %}

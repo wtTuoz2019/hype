@@ -1,13 +1,22 @@
+import hashlib
+import hmac
 import json
-from datetime import datetime
+import os
+import time
+from datetime import datetime, timedelta
 from unittest.mock import patch
 
 import leader_stats
+from cryptography.fernet import Fernet
 from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
 
-from plaza.models import Leader, LeaderSnapshot, TradeSignal
+from plaza.copy_plan import LotState, decide
+from plaza.hyperbot import sync_hot
+from plaza.copy_run import process_signal
+from plaza.models import CopyLog, CopyLot, ExchangeAccount, Follow, Leader, LeaderSnapshot, TradeSignal
 from plaza.services import leader_view
+from plaza.vault import decrypt
 
 
 class PageTests(TestCase):
@@ -15,7 +24,7 @@ class PageTests(TestCase):
         with patch("plaza.services.collect_leader", side_effect=AssertionError("不应在打开页面时请求")):
             response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "后台刷新")
+        self.assertContains(response, "开单快讯")
 
     def test_signal_filter(self):
         leader = Leader.objects.create(name="主号", address="0x" + "11" * 20)
@@ -113,3 +122,390 @@ class DexTests(TestCase):
         dexes = [item.get("dex", "") for item in calls if item.get("type") == "clearinghouseState"]
         self.assertEqual(dexes, [""])
         self.assertFalse(any(item.get("type") == "perpDexs" for item in calls))
+
+
+class ExchangeTests(TestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls._old_master = os.environ.get("HYPE_MASTER_KEY")
+        os.environ["HYPE_MASTER_KEY"] = Fernet.generate_key().decode()
+
+    @classmethod
+    def tearDownClass(cls):
+        if cls._old_master is None:
+            os.environ.pop("HYPE_MASTER_KEY", None)
+        else:
+            os.environ["HYPE_MASTER_KEY"] = cls._old_master
+        super().tearDownClass()
+
+    def _user(self, name: str):
+        user = User.objects.create_user(name, password="long-enough-pass")
+        self.client.force_login(user)
+        return user
+
+    def _add(self, venue: str, name: str, api_key: str, secret: str):
+        return self.client.post(
+            "/accounts/add/",
+            {"venue": venue, "name": name, "api_key": api_key, "api_secret": secret},
+            follow=True,
+        )
+
+    def test_binance_and_gate_keys_are_stored_encrypted(self):
+        self._user("trader")
+        binance_key = "BINANCEKEY1234567890ABCD"
+        binance_secret = "BINANCESECRET1234567890WXYZ"
+        gate_key = "GATEKEY1234567890EFGH"
+        gate_secret = "GATESECRET1234567890IJKL"
+        saved = self._add("binance", "币安主号", binance_key, binance_secret)
+        self.assertContains(saved, "****ABCD")
+        self.assertNotContains(saved, binance_key)
+        self.assertNotContains(saved, binance_secret)
+        saved = self._add("gate", "Gate 主号", gate_key, gate_secret)
+        self.assertContains(saved, "****EFGH")
+        self.assertNotContains(saved, gate_key)
+        self.assertNotContains(saved, gate_secret)
+        row = ExchangeAccount.objects.get(venue="binance")
+        self.assertEqual(decrypt(row.key_enc), binance_key)
+        self.assertEqual(decrypt(row.secret_enc), binance_secret)
+        self.assertNotEqual(row.key_enc, binance_key)
+        self.assertEqual(ExchangeAccount.objects.filter(venue="gate").count(), 1)
+
+    def test_follow_uses_only_own_account(self):
+        owner = self._user("owner")
+        self._add("binance", "我的币安", "OWNERKEY1234567890ABCD", "OWNERSECRET1234567890WXYZ")
+        own = ExchangeAccount.objects.get(user=owner)
+        other = User.objects.create_user("other", password="long-enough-pass")
+        foreign = ExchangeAccount.objects.create(
+            user=other,
+            venue="gate",
+            name="别人的",
+            key_last4="ZZZZ",
+            key_fp="fp-other",
+            key_enc="enc",
+            secret_enc="enc",
+        )
+        leader = Leader.objects.create(name="主号", address="0x" + "55" * 20, enabled=True)
+        self.client.force_login(owner)
+        denied = self.client.post(f"/leaders/{leader.id}/follow/", {"account": foreign.id}, follow=True)
+        self.assertContains(denied, "请选择一个可用的币安或 Gate 账户")
+        self.assertFalse(Follow.objects.filter(user=owner, active=True).exists())
+        ok = self.client.post(f"/leaders/{leader.id}/follow/", {"account": own.id}, follow=True)
+        self.assertContains(ok, "****ABCD")
+        follow = Follow.objects.get(user=owner, leader=leader)
+        self.assertTrue(follow.active)
+        self.assertEqual(follow.account_id, own.id)
+        me = self.client.get("/me/")
+        self.assertContains(me, "币安")
+        self.assertContains(me, "****ABCD")
+        self.client.post(f"/leaders/{leader.id}/follow/", {"stop": "1"})
+        follow.refresh_from_db()
+        self.assertFalse(follow.active)
+
+
+class _FakeVenue:
+    def __init__(self):
+        self.orders = []
+        self.eq = 10_000.0
+        self.mk = 40.0
+
+    def equity(self):
+        return self.eq
+
+    def mark(self, base):
+        return self.mk
+
+    def limits(self, base):
+        return 0.01, 5.0
+
+    def ensure(self, base):
+        return None
+
+    def order(self, base, side, qty, reduce_only):
+        self.orders.append((base, side, qty, reduce_only))
+
+
+class CopyPlanTests(TestCase):
+    def _open(self, **kwargs):
+        base = dict(
+            action="open",
+            side="long",
+            leader_delta=100,
+            leader_now=100,
+            px=40,
+            mark=40,
+            follower_equity=10_000,
+            leader_equity=700_000,
+            lot=LotState(),
+            min_qty=0.01,
+            min_notional=5,
+        )
+        base.update(kwargs)
+        return decide(**base)
+
+    def test_open_uses_capped_equity_ratio(self):
+        decision = self._open(follower_equity=100_000)
+        self.assertEqual(decision.status, "sent")
+        self.assertAlmostEqual(decision.intents[0].qty, 5.0)
+        self.assertAlmostEqual(decision.lot.ratio, 0.05)
+
+    def test_add_keeps_frozen_ratio(self):
+        decision = self._open(action="add", lot=LotState("long", 1, 0.01, 40, 0), leader_delta=50)
+        self.assertAlmostEqual(decision.intents[0].qty, 0.5)
+
+    def test_does_not_chase_a_worse_open(self):
+        decision = self._open(mark=40.3)
+        self.assertEqual(decision.intents, [])
+        self.assertIn("不追", decision.detail)
+
+    def test_close_ignores_price_and_minimum(self):
+        decision = decide(
+            action="close",
+            side="long",
+            leader_delta=100,
+            leader_now=0,
+            px=50,
+            mark=80,
+            follower_equity=10_000,
+            leader_equity=700_000,
+            lot=LotState("long", 0.004, 0.01, 40, 0),
+            min_qty=1,
+            min_notional=100,
+        )
+        self.assertEqual(decision.status, "sent")
+        self.assertAlmostEqual(decision.intents[0].qty, 0.004)
+        self.assertEqual(decision.lot.qty, 0)
+
+    def test_small_reduce_waits(self):
+        decision = decide(
+            action="reduce",
+            side="long",
+            leader_delta=1,
+            leader_now=99,
+            px=40,
+            mark=40,
+            follower_equity=10_000,
+            leader_equity=700_000,
+            lot=LotState("long", 2, 0.02, 40, 0),
+            min_qty=1,
+            min_notional=0,
+        )
+        self.assertEqual(decision.intents, [])
+        self.assertGreater(decision.lot.pending, 0)
+
+    def test_existing_position_is_not_opened(self):
+        decision = self._open(action="add")
+        self.assertEqual(decision.intents, [])
+        self.assertIn("已有仓", decision.detail)
+
+    def test_bump_over_equity_cap_is_skipped(self):
+        decision = self._open(min_qty=100, min_notional=0, px=40, follower_equity=1_000)
+        self.assertEqual(decision.intents, [])
+        self.assertIn("25%", decision.detail)
+
+    def test_worker_places_one_order_and_ignores_earlier_signal(self):
+        leader = Leader.objects.create(name="主号", address="0x" + "66" * 20)
+        LeaderSnapshot.objects.create(
+            leader=leader,
+            payload='{"periods":{"all":{"equity":700000}}}',
+            full=True,
+        )
+        account = ExchangeAccount.objects.create(
+            user=User.objects.create_user("copier", password="long-enough-pass"),
+            venue="binance",
+            name="币安",
+            key_last4="ABCD",
+            key_fp="fp-copy",
+            key_enc="x",
+            secret_enc="y",
+        )
+        follow = Follow.objects.create(
+            user=account.user, leader=leader, account=account, active=True, armed_ms=2_000
+        )
+        early = TradeSignal.objects.create(
+            leader=leader,
+            sig_id="early",
+            time_ms=1_000,
+            coin="HYPE",
+            action="open",
+            side="long",
+            label="开多",
+            delta_szi="100",
+            szi="100",
+            px="40",
+        )
+        venue = _FakeVenue()
+        process_signal(early.id, venue_for=lambda account: venue)
+        self.assertEqual(venue.orders, [])
+        self.assertEqual(CopyLog.objects.get(follow=follow).detail, "早于开始跟单")
+        fresh = TradeSignal.objects.create(
+            leader=leader,
+            sig_id="fresh",
+            time_ms=3_000,
+            coin="HYPE",
+            action="open",
+            side="long",
+            label="开多",
+            delta_szi="100",
+            szi="100",
+            px="40",
+        )
+        process_signal(fresh.id, venue_for=lambda account: venue)
+        self.assertEqual(len(venue.orders), 1)
+        self.assertEqual(venue.orders[0][0], "HYPE")
+        self.assertEqual(venue.orders[0][1], "long")
+        self.assertFalse(venue.orders[0][3])
+        lot = CopyLot.objects.get(follow=follow, coin="HYPE")
+        self.assertAlmostEqual(lot.qty, 100 * (10_000 / 700_000), places=6)
+
+
+class HotSyncTests(TestCase):
+    def test_sync_keeps_profitable_hot_addresses_only(self):
+        manual = "0x" + "11" * 20
+        Leader.objects.create(name="主号", address=manual, enabled=True, source="")
+        dropped = "0x" + "22" * 20
+        Leader.objects.create(name="旧热门", address=dropped, enabled=True, source="hyperbot")
+        paused = "0x" + "33" * 20
+        Leader.objects.create(name="已停", address=paused, enabled=False, source="hyperbot")
+        rows = [
+            {"address": "0x" + "AB" * 20, "realizedPnl": 1200, "remark": "盈利甲"},
+            {"address": "0x" + "44" * 20, "realizedPnl": -5, "remark": "亏损"},
+            {"address": manual, "realizedPnl": -100, "remark": "不要改主号"},
+            {"address": paused, "realizedPnl": 50, "remark": "不要自动打开"},
+            {"address": "bad", "realizedPnl": 10, "remark": "坏地址"},
+        ]
+        result = sync_hot(rows)
+        self.assertEqual(result["created"], 1)
+        self.assertEqual(result["disabled"], 1)
+        self.assertTrue(Leader.objects.get(address=manual, source="").enabled)
+        self.assertEqual(Leader.objects.get(address=manual).name, "主号")
+        self.assertFalse(Leader.objects.get(address=dropped).enabled)
+        self.assertFalse(Leader.objects.get(address=paused).enabled)
+        added = Leader.objects.get(address="0x" + "ab" * 20)
+        self.assertEqual(added.name, "盈利甲")
+        self.assertEqual(added.source, "hyperbot")
+        self.assertTrue(added.enabled)
+        self.assertFalse(Leader.objects.filter(name="亏损").exists())
+
+    def test_manual_add_is_not_removed_by_hot_sync(self):
+        user = User.objects.create_user("boss", password="long-enough-pass", is_staff=True)
+        self.client.force_login(user)
+        address = "0x" + "cd" * 20
+        with patch("plaza.views.threading.Thread") as thread:
+            response = self.client.post("/wallets/add/", {"name": "手工", "address": address})
+        self.assertEqual(response.status_code, 302)
+        thread.return_value.start.assert_called_once()
+        sync_hot([])
+        leader = Leader.objects.get(address=address)
+        self.assertTrue(leader.enabled)
+        self.assertEqual(leader.source, "")
+        self.assertEqual(leader.name, "手工")
+        seeded = Leader.objects.get(address="0xf97ad6704baec104d00b88e0c157e2b7b3a1ddd1")
+        seeded.delete()
+        sync_hot([])
+        self.assertFalse(
+            Leader.objects.filter(address="0xf97ad6704baec104d00b88e0c157e2b7b3a1ddd1").exists()
+        )
+
+
+def _telegram_query(payload, token):
+    pairs = [f"{key}={payload[key]}" for key in sorted(payload)]
+    secret = hashlib.sha256(token.encode()).digest()
+    signed = dict(payload)
+    signed["hash"] = hmac.new(secret, "\n".join(pairs).encode(), hashlib.sha256).hexdigest()
+    return signed
+
+
+class ScopePageTests(TestCase):
+    def test_pages_are_the_alphascope_screens(self):
+        home = self.client.get("/")
+        self.assertContains(home, "聪明钱包开单快讯")
+        self.assertContains(home, "开单语音提醒")
+        self.assertNotContains(home, "我的跟单")
+        self.assertContains(self.client.get("/leaderboard/"), "聪明钱包排行榜")
+        self.assertContains(self.client.get("/analysis/"), "综合分析")
+        self.assertContains(self.client.get("/pricing/"), "会员中心")
+        self.assertContains(self.client.get("/wallet/?id=B2"), "钱包详情")
+
+    def test_real_tape_respects_delay_and_uses_cached_stats(self):
+        from plaza.models import LeaderSnapshot
+
+        leader = Leader.objects.create(name="实盘甲", address="0x" + "ab" * 20, enabled=True)
+        now_ms = int(time.time() * 1000)
+        fresh = TradeSignal.objects.create(
+            leader=leader, sig_id="fresh", time_ms=now_ms, coin="BTC", action="open", side="long", label="开多", delta_szi="1", px="1000"
+        )
+        recent = TradeSignal.objects.create(
+            leader=leader,
+            sig_id="recent",
+            time_ms=now_ms - 2 * 60 * 1000,
+            coin="ETH",
+            action="open",
+            side="short",
+            label="开空",
+            delta_szi="2",
+            px="1000",
+        )
+        older = TradeSignal.objects.create(
+            leader=leader,
+            sig_id="older",
+            time_ms=now_ms - 40 * 60 * 1000,
+            coin="SOL",
+            action="open",
+            side="long",
+            label="开多",
+            delta_szi="3",
+            px="1000",
+        )
+        LeaderSnapshot.objects.create(
+            leader=leader,
+            payload=json.dumps(
+                {
+                    "periods": {"30d": {"pnl": 1200, "roi": 0.12, "equity": 11200, "curve": [[1, 0], [2, 1500], [3, 1200]]}},
+                    "positions": [{"coin": "BTC", "szi": 1.5, "entry": "60000", "upnl": 80}],
+                    "closes": [{"coin": "ETH", "dir": "Close Short", "px": "3000", "pnl": 40}],
+                    "win_rate": 0.5,
+                    "close_count": 4,
+                }
+            ),
+            full=True,
+        )
+        with patch("plaza.services.collect_leader", side_effect=AssertionError("打开页面不应请求链上")):
+            free = self.client.get("/api/tape/").json()
+        free_ids = [row["id"] for row in free["events"]]
+        self.assertIn(older.id, free_ids)
+        self.assertNotIn(fresh.id, free_ids)
+        self.assertNotIn(recent.id, free_ids)
+        card = next(row for row in free["wallets"] if row["id"] == str(leader.id))
+        self.assertEqual(card["roi"], 12.0)
+        self.assertEqual(card["positions"][0]["coin"], "BTC")
+        self.assertEqual(card["history"][0]["side"], "平空")
+        self.assertGreater(card["dd"], 0)
+
+        self.client.post("/api/membership/", data=json.dumps({"pro": True}), content_type="application/json")
+        pro_ids = [row["id"] for row in self.client.get("/api/tape/").json()["events"]]
+        self.assertIn(recent.id, pro_ids)
+        self.assertNotIn(fresh.id, pro_ids)
+        before = TradeSignal.objects.count()
+        preview = self.client.post("/api/tape/test/")
+        self.assertEqual(preview.json()["event"]["id"], recent.id)
+        self.assertEqual(TradeSignal.objects.count(), before)
+
+    @override_settings(TELEGRAM_BOT_TOKEN="123:ABC", TELEGRAM_BOT_USERNAME="AlphaScopeBot")
+    def test_telegram_login_checks_signature(self):
+        payload = {
+            "id": "42",
+            "first_name": "Ada",
+            "username": "ada",
+            "auth_date": str(int(time.time())),
+        }
+        signed = _telegram_query(payload, "123:ABC")
+        response = self.client.get("/auth/telegram/callback", signed)
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(User.objects.filter(username="tg_42").exists())
+        home = self.client.get("/")
+        self.assertContains(home, "@ada")
+        self.assertEqual(self.client.get("/auth/telegram/callback", signed).status_code, 403)
+        bad = dict(signed)
+        bad["hash"] = "0" * 64
+        self.assertEqual(self.client.get("/auth/telegram/callback", bad).status_code, 403)

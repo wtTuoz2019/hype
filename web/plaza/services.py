@@ -10,11 +10,9 @@ from .models import Leader, LeaderSnapshot
 
 PERIOD_KEYS = ("24h", "7d", "30d", "all")
 
-DEFAULT_LEADER = ("主号", "0xf97ad6704baec104d00b88e0c157e2b7b3a1ddd1")
-
 
 def ensure_leaders() -> None:
-    """只在库里还没有钱包时导入一次。之后以页面上的名单为准。"""
+    """库是空的时候，从旧的本地名单导入一次。之后以页面上的增删为准。"""
     if Leader.objects.exists():
         return
     try:
@@ -23,8 +21,6 @@ def ensure_leaders() -> None:
         rows = load_wallets()
     except Exception:
         rows = []
-    if not rows:
-        rows = [{"name": DEFAULT_LEADER[0], "address": DEFAULT_LEADER[1], "enabled": True}]
     for row in rows:
         Leader.objects.get_or_create(
             address=row["address"],

@@ -16,7 +16,7 @@ def save_signal(signal: dict) -> None:
     leader = Leader.objects.filter(address=address).first()
     if leader is None or not signal.get("id"):
         return
-    TradeSignal.objects.get_or_create(
+    row, created = TradeSignal.objects.get_or_create(
         sig_id=str(signal["id"])[:180],
         defaults={
             "leader": leader,
@@ -31,6 +31,10 @@ def save_signal(signal: dict) -> None:
             "px": str(signal.get("px") or "")[:40],
         },
     )
+    if created:
+        from plaza.copy_run import enqueue_signal
+
+        enqueue_signal(row.id)
 
 
 def group_fills(fills: list[dict]) -> list[list[dict]]:

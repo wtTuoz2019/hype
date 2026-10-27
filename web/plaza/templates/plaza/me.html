@@ -2,19 +2,40 @@
 {% block title %}我的跟单{% endblock %}
 {% block body %}
   <h1>我的跟单</h1>
-  <p class="note">这里是你点过跟单的钱包。下单还没接，状态只表示你的选择。</p>
+  <p class="note">{{ rules }}</p>
   <div class="card">
     <table>
-      <thead><tr><th>钱包</th><th>地址</th><th></th></tr></thead>
+      <thead><tr><th>钱包</th><th>交易所</th><th>账户</th><th></th></tr></thead>
       <tbody>
         {% for row in rows %}
           <tr>
             <td>{{ row.leader.name|default:"未命名" }}</td>
-            <td><code>{{ row.leader.address }}</code></td>
+            <td>{% if row.account %}{{ row.account.get_venue_display }}{% else %}-{% endif %}</td>
+            <td>{% if row.account %}{{ row.account.name }} · ****{{ row.account.key_last4 }}{% else %}-{% endif %}</td>
             <td><a href="{% url 'detail' row.leader.id %}">详情</a></td>
           </tr>
         {% empty %}
-          <tr><td colspan="3" class="sub">还没有选择跟单。</td></tr>
+          <tr><td colspan="4" class="sub">还没有选择跟单。可以先到交易所页面添加密钥。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card">
+    <h2>跟单记录</h2>
+    <table>
+      <thead><tr><th>时间</th><th>钱包</th><th>币种</th><th>结果</th><th>数量</th><th>说明</th></tr></thead>
+      <tbody>
+        {% for row in logs %}
+          <tr>
+            <td class="sub">{{ row.created_at|date:"m-d H:i:s" }}</td>
+            <td>{{ row.follow.leader.name|default:"未命名" }}</td>
+            <td>{{ row.coin }}</td>
+            <td>{{ row.status }}</td>
+            <td>{{ row.qty }}</td>
+            <td>{{ row.detail }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="6" class="sub">还没有跟单记录。</td></tr>
         {% endfor %}
       </tbody>
     </table>

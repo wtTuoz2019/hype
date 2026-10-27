@@ -1,8 +1,12 @@
+import hashlib
 import threading
+import time
 from datetime import datetime
 from urllib.parse import urlencode
 
 from django.conf import settings
+from django.contrib import messages
+from django.utils import timezone
 from django.core.paginator import Paginator
 from django.http import HttpResponseForbidden, JsonResponse
 from django.contrib.auth import authenticate, login, logout
@@ -13,7 +17,10 @@ from django.core.exceptions import ValidationError
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
-from .models import Follow, Leader, Profile, TradeSignal
+from .copy_plan import RULES
+from .copy_run import enqueue_flatten
+from .models import CopyLog, ExchangeAccount, Follow, Leader, Profile, TradeSignal
+from .vault import encrypt
 from .services import ensure_leaders, leader_view
 
 PERIODS = (("24h", "24小时"), ("7d", "7日"), ("30d", "30日"), ("all", "全部"))
@@ -78,33 +85,99 @@ def _kept(request) -> str:
     return urlencode(data)
 
 
+def _notional(row: TradeSignal) -> float:
+    try:
+        return abs(float(row.delta_szi or 0)) * float(row.px or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _amount(value: float) -> str:
+    if value >= 10000:
+        return f"{value / 10000:,.1f} 万 USDT"
+    return f"{value:,.0f} USDT"
+
+
 def home(request):
     ensure_leaders()
-    cards = []
-    followed = set()
-    if request.user.is_authenticated:
-        followed = set(
-            Follow.objects.filter(user=request.user, active=True).values_list("leader_id", flat=True)
-        )
-    for leader in Leader.objects.filter(enabled=True).select_related("snapshot").order_by("id"):
-        stats = leader_view(leader)
-        card = _pack(stats, "7d")
-        card.update(
-            {
-                "leader": leader,
-                "followed": leader.id in followed,
-                "waiting": bool(stats.get("waiting")),
-                "updated": stats.get("updated") or "",
-                "error": stats.get("error") or "",
-            }
-        )
-        cards.append(card)
-    latest_signals = list(TradeSignal.objects.select_related("leader")[:12])
+    rows = list(TradeSignal.objects.select_related("leader")[:40])
+    start = timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
+    start_ms = int(start.timestamp() * 1000)
+    today = TradeSignal.objects.filter(time_ms__gte=start_ms).select_related("leader")
+    long_funds = short_funds = 0.0
+    long_wallets: set[int] = set()
+    short_wallets: set[int] = set()
+    opens = []
+    for row in today:
+        if row.label not in ("开多", "开空", "加多", "加空"):
+            continue
+        amount = _notional(row)
+        if "空" in row.label:
+            short_funds += amount
+            short_wallets.add(row.leader_id)
+        else:
+            long_funds += amount
+            long_wallets.add(row.leader_id)
+        if row.label.startswith("开"):
+            opens.append({"amount": amount, "text": _amount(amount), "row": row})
+    opens.sort(key=lambda item: item["amount"], reverse=True)
+    total = long_funds + short_funds
+    ratio = (long_funds / total * 100) if total else 0
     return render(
         request,
         "plaza/home.html",
-        {"cards": cards, "latest_signals": latest_signals},
+        {
+            "rows": rows,
+            "latest": rows[0].id if rows else 0,
+            "long_funds": _amount(long_funds),
+            "short_funds": _amount(short_funds),
+            "long_share": f"{ratio:.1f}",
+            "short_share": f"{(100 - ratio) if total else 0:.1f}",
+            "long_wallets": len(long_wallets),
+            "short_wallets": len(short_wallets),
+            "fund_gap": _amount(abs(long_funds - short_funds)),
+            "opens": opens[:3],
+            "top": opens[0] if opens else None,
+        },
     )
+
+
+def board(request):
+    ensure_leaders()
+    order = request.GET.get("order") or "roi"
+    if order not in ("roi", "win"):
+        order = "roi"
+    term = (request.GET.get("q") or "").strip().lower()
+    cards = []
+    for leader in Leader.objects.filter(enabled=True).select_related("snapshot").order_by("id"):
+        haystack = f"{leader.name} {leader.address}".lower()
+        if term and term not in haystack:
+            continue
+        stats = leader_view(leader)
+        pack = _pack(stats, "30d")
+        period = (stats.get("periods") or {}).get("30d") or {}
+        try:
+            roi_value = float(period.get("roi") or 0)
+        except (TypeError, ValueError):
+            roi_value = 0.0
+        win = stats.get("win_rate")
+        try:
+            win_value = float(win) if win is not None else -1.0
+        except (TypeError, ValueError):
+            win_value = -1.0
+        cards.append(
+            {
+                "leader": leader,
+                "pack": pack,
+                "waiting": bool(stats.get("waiting")),
+                "roi_value": roi_value,
+                "win_value": win_value,
+                "win_rate": f"{win_value * 100:.1f}%" if win_value >= 0 else "-",
+                "closes": stats.get("close_count") or 0,
+            }
+        )
+    cards.sort(key=lambda card: card["win_value"] if order == "win" else card["roi_value"], reverse=True)
+    return render(request, "plaza/board.html", {"cards": cards, "order": order, "term": request.GET.get("q") or ""})
 
 
 def _signal_query(leader_id: str, coin: str, label: str):
@@ -192,8 +265,16 @@ def detail(request, leader_id: int):
         chosen = "7d"
     stats = leader_view(leader)
     followed = False
+    follow_row = None
+    accounts = []
     if request.user.is_authenticated:
-        followed = Follow.objects.filter(user=request.user, leader=leader, active=True).exists()
+        follow_row = (
+            Follow.objects.filter(user=request.user, leader=leader).select_related("account").first()
+        )
+        followed = bool(follow_row and follow_row.active)
+        accounts = list(
+            ExchangeAccount.objects.filter(user=request.user, enabled=True).order_by("id")
+        )
     win = stats.get("win_rate")
     closes = stats.get("shown_closes")
     if closes is None:
@@ -223,24 +304,135 @@ def detail(request, leader_id: int):
             "win_rate": stats.get("shown_win") or (f"{float(win) * 100:.1f}%" if win is not None else "-"),
             "close_count": stats.get("close_count") or 0,
             "followed": followed,
+            "follow_row": follow_row,
+            "accounts": accounts,
             "waiting": bool(stats.get("waiting")),
             "updated": stats.get("updated") or "",
             "error": stats.get("error") or "",
+            "rules": RULES,
             "signals": TradeSignal.objects.filter(leader=leader)[:12],
+        },
+    )
+
+
+def _clean_secret(value: str) -> str:
+    text = (value or "").strip()
+    if len(text) < 16 or len(text) > 200 or any(ch.isspace() for ch in text):
+        raise ValueError("密钥长度或格式不对")
+    return text
+
+
+def _account_fp(venue: str, api_key: str) -> str:
+    return hashlib.sha256(f"{venue}\n{api_key}".encode()).hexdigest()
+
+
+@login_required
+def accounts_page(request):
+    rows = ExchangeAccount.objects.filter(user=request.user).order_by("id")
+    return render(
+        request,
+        "plaza/accounts.html",
+        {"rows": rows, "venues": ExchangeAccount.VENUES, "error": ""},
+    )
+
+
+@login_required
+@require_POST
+def account_add(request):
+    venue = (request.POST.get("venue") or "").strip()
+    name = (request.POST.get("name") or "").strip()[:40]
+    if venue not in dict(ExchangeAccount.VENUES):
+        venue = ""
+    try:
+        api_key = _clean_secret(request.POST.get("api_key") or "")
+        api_secret = _clean_secret(request.POST.get("api_secret") or "")
+    except ValueError:
+        api_key = ""
+        api_secret = ""
+    error = ""
+    if not venue:
+        error = "请选择币安或 Gate"
+    elif not api_key or not api_secret:
+        error = "API Key 和 Secret 至少 16 位，中间不能有空格"
+    else:
+        fp = _account_fp(venue, api_key)
+        if ExchangeAccount.objects.filter(user=request.user, key_fp=fp).exists():
+            error = "这个密钥已经添加过"
+        else:
+            if not name:
+                name = dict(ExchangeAccount.VENUES)[venue]
+            ExchangeAccount.objects.create(
+                user=request.user,
+                venue=venue,
+                name=name,
+                key_last4=api_key[-4:],
+                key_fp=fp,
+                key_enc=encrypt(api_key),
+                secret_enc=encrypt(api_secret),
+            )
+            return redirect("accounts")
+    return render(
+        request,
+        "plaza/accounts.html",
+        {
+            "rows": ExchangeAccount.objects.filter(user=request.user).order_by("id"),
+            "venues": ExchangeAccount.VENUES,
+            "error": error,
+            "name": name,
+            "venue": venue,
         },
     )
 
 
 @login_required
 @require_POST
+def account_toggle(request, account_id: int):
+    row = get_object_or_404(ExchangeAccount, pk=account_id, user=request.user)
+    row.enabled = not row.enabled
+    row.save(update_fields=["enabled"])
+    return redirect("accounts")
+
+
+@login_required
+@require_POST
+def account_delete(request, account_id: int):
+    row = get_object_or_404(ExchangeAccount, pk=account_id, user=request.user)
+    Follow.objects.filter(account=row, active=True).update(active=False)
+    row.delete()
+    return redirect("accounts")
+
+
+@login_required
+@require_POST
 def follow(request, leader_id: int):
     leader = get_object_or_404(Leader.objects.filter(enabled=True), pk=leader_id)
-    row, created = Follow.objects.get_or_create(
-        user=request.user, leader=leader, defaults={"active": True}
-    )
-    if not created:
-        row.active = not row.active
-        row.save(update_fields=["active", "updated_at"])
+    row = Follow.objects.filter(user=request.user, leader=leader).first()
+    if request.POST.get("stop") == "1":
+        if row is not None and row.active:
+            row.active = False
+            row.save(update_fields=["active", "updated_at"])
+            enqueue_flatten(row.id)
+        return redirect("detail", leader_id=leader.id)
+    try:
+        account_id = int(request.POST.get("account") or 0)
+    except ValueError:
+        account_id = 0
+    account = ExchangeAccount.objects.filter(
+        pk=account_id, user=request.user, enabled=True
+    ).first()
+    if account is None:
+        messages.error(request, "请选择一个可用的币安或 Gate 账户")
+        return redirect("detail", leader_id=leader.id)
+    armed = int(time.time() * 1000)
+    if row is None:
+        Follow.objects.create(
+            user=request.user, leader=leader, account=account, active=True, armed_ms=armed
+        )
+    else:
+        row.account = account
+        row.active = True
+        row.armed_ms = armed
+        row.save(update_fields=["account", "active", "armed_ms", "updated_at"])
     return redirect("detail", leader_id=leader.id)
 
 
@@ -248,10 +440,11 @@ def follow(request, leader_id: int):
 def me(request):
     rows = (
         Follow.objects.filter(user=request.user, active=True)
-        .select_related("leader")
+        .select_related("leader", "account")
         .order_by("-updated_at")
     )
-    return render(request, "plaza/me.html", {"rows": rows})
+    logs = CopyLog.objects.filter(follow__user=request.user).select_related("follow__leader")[:20]
+    return render(request, "plaza/me.html", {"rows": rows, "logs": logs, "rules": RULES})
 
 
 @login_required
@@ -319,14 +512,26 @@ def wallet_add(request):
             {"rows": Leader.objects.order_by("id"), "error": "地址格式不对", "name": name, "address": raw},
         )
     leader, created = Leader.objects.get_or_create(
-        address=address, defaults={"name": name, "enabled": True}
+        address=address, defaults={"name": name, "enabled": True, "source": ""}
     )
     if not created:
         leader.name = name or leader.name
         leader.enabled = True
-        leader.save(update_fields=["name", "enabled"])
+        leader.source = ""
+        leader.save(update_fields=["name", "enabled", "source"])
     if created or not TradeSignal.objects.filter(leader=leader).exists():
         threading.Thread(target=_warm_leader, args=(leader.id,), name="hype-warm", daemon=True).start()
+    return redirect("wallets")
+
+
+@login_required
+@require_POST
+def wallet_delete(request, leader_id: int):
+    denied = _staff_only(request)
+    if denied:
+        return denied
+    leader = get_object_or_404(Leader, pk=leader_id)
+    leader.delete()
     return redirect("wallets")
 
 

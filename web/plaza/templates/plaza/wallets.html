@@ -2,7 +2,7 @@
 {% block title %}监控钱包{% endblock %}
 {% block body %}
   <h1>监控钱包</h1>
-  <p class="note">这里的名单会在几秒内被监控进程读到。停用后不再订阅这个地址。跟单仍然只记录选择，不下单。</p>
+  <p class="note">地址可以手动添加，也可以删除。删掉之后不会再被自动加回来。热门同步只处理标记为热门的地址，大约每 6 小时对一次，不会改手工添加的钱包。</p>
   <div class="card">
     <h2>添加</h2>
     {% if error %}<p class="err">{{ error }}</p>{% endif %}
@@ -23,11 +23,15 @@
           <tr>
             <td>{{ row.name|default:"未命名" }}</td>
             <td><code>{{ row.address }}</code></td>
-            <td>{% if row.enabled %}监控中{% else %}已停{% endif %}</td>
+            <td>{% if row.enabled %}监控中{% else %}已停{% endif %}{% if row.source == "hyperbot" %} · 热门{% endif %}</td>
             <td>
-              <form method="post" action="{% url 'wallet_toggle' row.id %}">
+              <form method="post" action="{% url 'wallet_toggle' row.id %}" style="display:inline">
                 {% csrf_token %}
-                <button class="ghost" type="submit">{% if row.enabled %}停用{% else %}启用{% endif %}</button>
+                <button class="btn secondary" type="submit">{% if row.enabled %}停用{% else %}启用{% endif %}</button>
+              </form>
+              <form method="post" action="{% url 'wallet_delete' row.id %}" style="display:inline" onsubmit="return confirm('删除这个监控地址？')">
+                {% csrf_token %}
+                <button class="btn outline" type="submit">删除</button>
               </form>
             </td>
           </tr>

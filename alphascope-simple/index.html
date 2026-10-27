@@ -1,0 +1,25 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>聪明钱包开单快讯 - AlphaScope</title><link rel="stylesheet" href="style.css"></head><body><header><nav class="nav"><a class="brand" href="index.html">● AlphaScope</a><div class="links"><a href="index.html" class="active">开单快讯</a><a href="leaderboard.html">钱包排行榜</a><a href="analysis.html" class="">综合分析</a><a href="pricing.html" class="">会员中心</a></div><div class="tg-account" id="tg-account"><button class="tg-login" type="button" onclick="openTelegramLogin()">Telegram 登录</button></div></nav></header><main><div class="home-head"><div><div class="eyebrow">SMART MONEY · LIVE FEED <span class="demo-label">永续实盘</span></div><h1>聪明钱包开单快讯</h1></div><a class="head-link" href="leaderboard.html">查看钱包排行榜 →</a></div><section class="alert-hub compact-alert" aria-label="开单语音提醒">
+  <div class="compact-alert-row">
+    <div class="compact-alert-title"><span class="compact-alert-icon">🔔</span><div><b>开单语音提醒</b><small data-pro-label></small></div></div>
+    <div data-pro-only class="compact-alert-actions">
+      <label class="compact-select-label" for="voice-scope">播报范围</label>
+      <select id="voice-scope" class="compact-select" onchange="setVoiceMode(this.value)" aria-label="播报范围"><option value="all">全部钱包</option><option value="subs">仅订阅钱包</option></select>
+      <label class="compact-toggle"><input id="voice-on" type="checkbox" checked onchange="saveVoiceEnabled()"><span>语音开启</span></label>
+      <button class="btn compact-test" type="button" onclick="testVoice()">▶ 试听</button>
+      <details class="compact-more"><summary>更多设置</summary><div class="compact-popover"><button class="btn secondary" type="button" onclick="permission()">允许桌面通知</button><p id="voice-mode-summary" role="status"></p><p>已订阅 <b id="sub-count">0 个</b> 钱包</p></div></details>
+    </div>
+    <div data-free-only class="compact-free"><span>即时播报仅限 Pro</span><a class="btn" href="pricing.html?need=alert">升级开启</a></div>
+  </div>
+  <div class="alert-feedback hidden" id="notify" role="status" aria-live="polite"></div>
+</section><section class="direction-overview direction-compact panel" aria-label="今日多空资金对比">
+  <div class="funds-inline">
+    <strong class="funds-title">今日开单资金 <span class="mini-help" title="统计今日已记录的开仓与加仓名义金额，并非实时持仓">ⓘ</span></strong>
+    <div class="funds-side funds-long"><span>多头</span><b id="long-funds">—</b></div>
+    <div class="funds-meter"><div class="direction-bar" role="img" aria-label="今日多空开单资金比例"><div id="direction-long-bar" class="direction-long-bar"></div></div><div class="direction-percent"><span id="long-share">多头 —</span><span id="short-share">空头 —</span></div></div>
+    <div class="funds-side funds-short"><span>空头</span><b id="short-funds">—</b></div>
+    <details class="funds-details"><summary>详情</summary><div class="funds-detail-inner"><span id="wallet-long-count">做多钱包 —</span><span id="wallet-short-count">做空钱包 —</span><span id="fund-difference">资金差 —</span><small>开仓及加仓名义金额累计，不代表当前净持仓</small></div></details>
+  </div>
+</section><div class="news-layout">
+  <section class="panel flash-panel"><div class="pad"><div class="topline"><div><h2>最新开单 <span class="feed-sim">已记录信号</span></h2><span class="tiny" id="sync-status"></span></div><button class="btn secondary" onclick="simulate()">＋ 测试快讯</button></div><div class="toolbar"><button class="chip on" onclick="selectFilter('全部',this)">全部</button><button class="chip" onclick="selectFilter('多',this)">做多</button><button class="chip" onclick="selectFilter('空',this)">做空</button></div></div><div id="feed" class="feed timeline"></div></section>
+  <aside class="important-panel panel" aria-label="重要事件"><div class="important-heading"><span class="important-accent"></span><h2>今日焦点</h2><small>今日 · 已记录开单</small></div><div id="biggest-open" class="biggest-open"></div><div class="important-secondary"><h3>今日开单资金 TOP 3</h3><div id="biggest-list"></div></div><div class="important-footnote">名义开仓金额 ≠ 保证金。数字来自已记下的永续成交。</div></aside>
+</div><div class="notice" data-free-only>免费版：可查看延迟开单快讯与历史胜率，不能订阅即时推送。</div><p class="footer">历史胜率不代表未来表现 · 合约交易可能导致本金损失</p></main><script src="telegram-auth.js"></script><script src="app.js"></script></body></html>

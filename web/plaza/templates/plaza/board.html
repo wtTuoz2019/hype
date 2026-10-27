@@ -1,0 +1,48 @@
+{% extends "plaza/base.html" %}
+{% block title %}钱包排行榜 · AlphaScope{% endblock %}
+{% block body %}
+  <div class="home-head">
+    <div>
+      <div class="eyebrow">LEADERBOARD</div>
+      <h1>钱包排行榜</h1>
+    </div>
+    <a class="head-link" href="{% url 'home' %}">回开单快讯</a>
+  </div>
+  <section class="panel rank-panel">
+    <form class="rank-tools" method="get">
+      <div class="rank-tabs">
+        <button class="chip {% if order == 'roi' %}on{% endif %}" name="order" value="roi" type="submit">按 30 日收益</button>
+        <button class="chip {% if order == 'win' %}on{% endif %}" name="order" value="win" type="submit">按胜率</button>
+      </div>
+      <input class="rank-search" name="q" value="{{ term }}" placeholder="搜名称或地址">
+    </form>
+    <div class="rank-tip">收益来自后台缓存的 Hyperliquid 永续曲线。点进去再决定是否跟单。</div>
+    <div class="rank-list">
+      {% for card in cards %}
+        <article class="rank-card">
+          <div class="rank-head">
+            <div class="rank-number">{{ forloop.counter }}</div>
+            <div class="rank-identity">
+              <strong>{{ card.leader.name|default:"未命名" }}</strong>
+              <small>{{ card.leader.address }}</small>
+            </div>
+            <a class="btn" href="{% url 'detail' card.leader.id %}">查看</a>
+          </div>
+          {% if card.waiting %}
+            <p class="rank-foot">收益正在后台刷新</p>
+          {% else %}
+            <div class="rank-metrics">
+              <div><small>30 日收益率</small><strong class="{% if card.roi_value >= 0 %}positive{% else %}risk{% endif %}">{{ card.pack.roi }}</strong></div>
+              <div><small>30 日收益</small><strong>{{ card.pack.pnl }}</strong></div>
+              <div><small>胜率</small><strong>{{ card.win_rate }}</strong></div>
+              <div><small>已平仓</small><strong>{{ card.closes }}</strong></div>
+            </div>
+            <div class="rank-foot">永续权益 {{ card.pack.equity }} <span>· {{ card.leader.source|default:"手工添加" }}</span></div>
+          {% endif %}
+        </article>
+      {% empty %}
+        <div class="empty">还没有监控钱包</div>
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}
