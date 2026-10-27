@@ -22,6 +22,7 @@ from .tape import (
     toggle_sub,
     visible_events,
     wallet_cards,
+    wallet_rev,
 )
 from .telegram_auth import telegram_ok
 
@@ -55,13 +56,14 @@ def _user(request) -> dict | None:
 
 
 def boot(request) -> dict:
-    rows = list(visible_events(request))
+    rows = visible_events(request)
     return {
         "pro": is_pro(request),
         "subs": subscriptions(request),
         "user": _user(request),
         "bot": settings.TELEGRAM_BOT_USERNAME,
         "authUrl": request.build_absolute_uri("/auth/telegram/callback"),
+        "wallet_rev": wallet_rev(),
         "wallets": wallet_cards(),
         "events": [event_dict(row) for row in rows],
         "today": today_stats(request),
@@ -89,23 +91,39 @@ def _body(request) -> dict:
 
 
 def tape_feed(request):
-    rows = list(visible_events(request))
-    return JsonResponse(
-        {
-            "pro": is_pro(request),
-            "subs": subscriptions(request),
-            "wallets": wallet_cards(),
-            "events": [event_dict(row) for row in rows],
-            "today": today_stats(request),
-        }
-    )
+    after_raw = request.GET.get("after") or ""
+    after_id = None
+    if after_raw.isdigit():
+        after_id = int(after_raw)
+    want_wallets = request.GET.get("wallets") == "1"
+    skip_events = request.GET.get("events") == "0"
+    client_rev = request.GET.get("rev") or ""
+    rev = wallet_rev()
+    payload = {
+        "pro": is_pro(request),
+        "subs": subscriptions(request),
+        "today": today_stats(request),
+        "wallet_rev": rev,
+        "incremental": False,
+        "events": [],
+    }
+    if not skip_events:
+        if after_id is not None:
+            rows = visible_events(request, after_id=after_id, limit=40)
+            payload["incremental"] = True
+        else:
+            rows = visible_events(request)
+        payload["events"] = [event_dict(row) for row in rows]
+    if want_wallets or client_rev != rev:
+        payload["wallets"] = wallet_cards()
+    return JsonResponse(payload)
 
 
 @require_POST
 def tape_test(request):
     if not is_pro(request):
         return JsonResponse({"message": "免费用户不会即时收到新开单推送。升级 Pro 后，新信号大约晚 1 分钟播报。"})
-    rows = list(visible_events(request))
+    rows = visible_events(request)
     if not rows:
         return JsonResponse({"message": "还没有可播报的真实开单。后台记到新信号后会出现在这里。"})
     return JsonResponse({"event": event_dict(rows[0]), "pro": True, "subs": subscriptions(request)})

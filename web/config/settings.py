@@ -86,7 +86,7 @@ else:
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
             "NAME": BASE_DIR / "data" / "copy.sqlite3",
-            "OPTIONS": {"timeout": 20},
+            "OPTIONS": {"timeout": 30},
         }
     }
 

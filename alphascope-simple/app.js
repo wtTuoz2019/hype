@@ -196,29 +196,63 @@ async function permission(){
   if('Notification' in window) await Notification.requestPermission();
   else alert('此浏览器不支持桌面通知');
 }
+var walletRev = live && live.wallet_rev ? live.wallet_rev : '';
+var lastEventId = 0;
+events.forEach(function(row){ if(row.id > lastEventId) lastEventId = row.id; });
 function applyTape(data){
   if(!data || !data.events) return;
   var fresh = data.events.filter(function(row){ return !seen[row.id]; });
-  data.events.forEach(function(row){ seen[row.id] = true; });
-  events = data.events;
+  data.events.forEach(function(row){
+    seen[row.id] = true;
+    if(row.id > lastEventId) lastEventId = row.id;
+  });
+  if(data.incremental){
+    if(fresh.length){
+      events = fresh.slice().reverse().concat(events).slice(0, 80);
+    }
+  } else {
+    events = data.events;
+  }
   if(data.wallets) wallets = data.wallets;
+  if(data.wallet_rev) walletRev = data.wallet_rev;
   if(data.today) live.today = data.today;
   applyState(data);
   render();
-  renderLeaderboard();
-  if(typeof paintWallet === 'function') paintWallet();
-  if(booted && pro()) fresh.slice().reverse().forEach(alertFor);
+  if(data.wallets){
+    renderLeaderboard();
+    if(typeof paintWallet === 'function') paintWallet();
+  }
+  if(booted && pro()) fresh.forEach(alertFor);
   booted = true;
 }
 function pull(){
   if(!live) return;
-  fetch('/api/tape/').then(function(res){ return res.json(); }).then(applyTape).catch(function(){});
+  var url = '/api/tape/?rev=' + encodeURIComponent(walletRev || '');
+  if(lastEventId) url += '&after=' + lastEventId;
+  fetch(url).then(function(res){ return res.json(); }).then(applyTape).catch(function(){});
+}
+function pullWallets(){
+  if(!live) return;
+  fetch('/api/tape/?wallets=1&events=0&rev=' + encodeURIComponent(walletRev || '')).then(function(res){ return res.json(); }).then(function(data){
+    if(!data) return;
+    if(data.wallets){
+      wallets = data.wallets;
+      if(data.wallet_rev) walletRev = data.wallet_rev;
+      renderLeaderboard();
+      if(typeof paintWallet === 'function') paintWallet();
+    }
+    applyState(data);
+  }).catch(function(){});
 }
 document.addEventListener('DOMContentLoaded', function(){
   shell();
   render();
   if($('#need-note') && location.search.indexOf('need=alert') >= 0) $('#need-note').classList.remove('hidden');
-  if(live){ booted = true; setInterval(pull, 3000); }
+  if(live){
+    booted = true;
+    setInterval(pull, 3000);
+    setInterval(pullWallets, 60000);
+  }
 });
 
 var boardOrder = 'roi';

@@ -55,6 +55,10 @@ class TradeSignal(models.Model):
 
     class Meta:
         ordering = ["-id"]
+        indexes = [
+            models.Index(fields=["-time_ms", "-id"], name="plaza_sig_time_id"),
+            models.Index(fields=["leader", "-time_ms"], name="plaza_sig_leader_time"),
+        ]
 
     def when(self) -> str:
         from datetime import datetime

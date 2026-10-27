@@ -476,6 +476,7 @@ class ScopePageTests(TestCase):
         self.assertIn(older.id, free_ids)
         self.assertNotIn(fresh.id, free_ids)
         self.assertNotIn(recent.id, free_ids)
+        self.assertIn("wallet_rev", free)
         card = next(row for row in free["wallets"] if row["id"] == str(leader.id))
         self.assertEqual(card["roi"], 12.0)
         self.assertEqual(card["positions"][0]["coin"], "BTC")
@@ -486,6 +487,17 @@ class ScopePageTests(TestCase):
         pro_ids = [row["id"] for row in self.client.get("/api/tape/").json()["events"]]
         self.assertIn(recent.id, pro_ids)
         self.assertNotIn(fresh.id, pro_ids)
+        # 增量：id 大于 after，且已过 Pro 延迟（按创建顺序 fresh < recent < older）
+        incr = self.client.get(f"/api/tape/?after={fresh.id}&rev={free['wallet_rev']}").json()
+        self.assertTrue(incr["incremental"])
+        incr_ids = [row["id"] for row in incr["events"]]
+        self.assertIn(recent.id, incr_ids)
+        self.assertIn(older.id, incr_ids)
+        self.assertNotIn(fresh.id, incr_ids)
+        self.assertNotIn("wallets", incr)
+        light = self.client.get("/api/tape/?events=0&wallets=1").json()
+        self.assertEqual(light["events"], [])
+        self.assertTrue(light["wallets"])
         before = TradeSignal.objects.count()
         preview = self.client.post("/api/tape/test/")
         self.assertEqual(preview.json()["event"]["id"], recent.id)

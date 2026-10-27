@@ -1,14 +1,22 @@
 """开单快讯和排行榜。只读已经记下的永续信号和收益缓存。"""
 
+from __future__ import annotations
+
+import threading
+import time
 from datetime import datetime, timedelta
 
 from django.utils import timezone
 
-from .models import AlertSub, Leader, TradeSignal
+from .models import AlertSub, Leader, LeaderSnapshot, TradeSignal
 from .services import _money, ensure_leaders, leader_view
 
 FREE_DELAY = 30 * 60
 PRO_DELAY = 60
+
+_CARD_LOCK = threading.Lock()
+_CARD_CACHE: dict = {"rev": "", "at": 0.0, "rows": []}
+_CARD_TTL = 45.0
 
 
 def is_pro(request) -> bool:
@@ -91,13 +99,16 @@ def _cutoff_ms(request) -> int:
     return int((timezone.now() - timedelta(seconds=delay)).timestamp() * 1000)
 
 
-def visible_events(request):
-    ensure_leaders()
-    return TradeSignal.objects.select_related("leader").filter(
+def visible_events(request, *, after_id: int | None = None, limit: int = 80):
+    qs = TradeSignal.objects.select_related("leader").filter(
         leader__enabled=True,
         time_ms__gt=0,
         time_ms__lte=_cutoff_ms(request),
-    ).order_by("-time_ms", "-id")[:80]
+    )
+    if after_id:
+        qs = qs.filter(id__gt=after_id).order_by("time_ms", "id")
+        return list(qs[:limit])
+    return list(qs.order_by("-time_ms", "-id")[:limit])
 
 
 def _notional(row: TradeSignal) -> float:
@@ -123,7 +134,6 @@ def event_dict(row: TradeSignal) -> dict:
 
 
 def today_stats(request) -> dict:
-    ensure_leaders()
     start = timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
     start_ms = int(start.timestamp() * 1000)
     labels = TradeSignal.objects.filter(
@@ -140,6 +150,19 @@ def today_stats(request) -> dict:
         elif str(label).startswith("平"):
             close_count += 1
     return {"long": long_count, "short": short_count, "close": close_count}
+
+
+def wallet_rev() -> str:
+    """快照有没有更新：前端拿这个决定要不要拉钱包卡片。"""
+    latest = (
+        LeaderSnapshot.objects.filter(leader__enabled=True)
+        .order_by("-fetched_at")
+        .values_list("fetched_at", flat=True)
+        .first()
+    )
+    count = Leader.objects.filter(enabled=True).count()
+    stamp = str(int(latest.timestamp() * 1000)) if latest else "0"
+    return f"{count}:{stamp}"
 
 
 def _float(value, default=0.0) -> float:
@@ -270,6 +293,22 @@ def _card(leader: Leader) -> dict:
     }
 
 
-def wallet_cards() -> list[dict]:
+def wallet_cards(*, force: bool = False) -> list[dict]:
     ensure_leaders()
-    return [_card(leader) for leader in Leader.objects.filter(enabled=True).select_related("snapshot").order_by("id")]
+    rev = wallet_rev()
+    now = time.monotonic()
+    with _CARD_LOCK:
+        hit = (
+            not force
+            and _CARD_CACHE["rows"]
+            and _CARD_CACHE["rev"] == rev
+            and now - float(_CARD_CACHE["at"]) < _CARD_TTL
+        )
+        if hit:
+            return list(_CARD_CACHE["rows"])
+    rows = [_card(leader) for leader in Leader.objects.filter(enabled=True).select_related("snapshot").order_by("id")]
+    with _CARD_LOCK:
+        _CARD_CACHE["rev"] = rev
+        _CARD_CACHE["at"] = now
+        _CARD_CACHE["rows"] = rows
+    return list(rows)
