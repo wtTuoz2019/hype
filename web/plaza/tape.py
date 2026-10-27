@@ -17,6 +17,9 @@ PRO_DELAY = 60
 _CARD_LOCK = threading.Lock()
 _CARD_CACHE: dict = {"rev": "", "at": 0.0, "rows": []}
 _CARD_TTL = 45.0
+_TODAY_LOCK = threading.Lock()
+_TODAY_CACHE: dict = {}
+_TODAY_TTL = 20.0
 
 
 def is_pro(request) -> bool:
@@ -134,12 +137,20 @@ def event_dict(row: TradeSignal) -> dict:
 
 
 def today_stats(request) -> dict:
+    cutoff = _cutoff_ms(request)
+    # 按分钟桶缓存，避免每 3 秒扫当日全表
+    key = (is_pro(request), cutoff // 60_000)
+    now = time.monotonic()
+    with _TODAY_LOCK:
+        hit = _TODAY_CACHE.get(key)
+        if hit and now - hit[0] < _TODAY_TTL:
+            return dict(hit[1])
     start = timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
     start_ms = int(start.timestamp() * 1000)
     labels = TradeSignal.objects.filter(
         leader__enabled=True,
         time_ms__gte=start_ms,
-        time_ms__lte=_cutoff_ms(request),
+        time_ms__lte=cutoff,
     ).values_list("label", flat=True)
     long_count = short_count = close_count = 0
     for label in labels:
@@ -149,7 +160,13 @@ def today_stats(request) -> dict:
             short_count += 1
         elif str(label).startswith("平"):
             close_count += 1
-    return {"long": long_count, "short": short_count, "close": close_count}
+    result = {"long": long_count, "short": short_count, "close": close_count}
+    with _TODAY_LOCK:
+        _TODAY_CACHE[key] = (now, result)
+        if len(_TODAY_CACHE) > 8:
+            oldest = min(_TODAY_CACHE, key=lambda item: _TODAY_CACHE[item][0])
+            _TODAY_CACHE.pop(oldest, None)
+    return dict(result)
 
 
 def wallet_rev() -> str:
@@ -212,7 +229,7 @@ def _trade_row(coin: str, side: str, px: str, pnl: float) -> dict:
     }
 
 
-def _card(leader: Leader) -> dict:
+def _card(leader: Leader, *, detail: bool = False) -> dict:
     stats = leader_view(leader)
     name = leader.name or (leader.address[:8] + "…" + leader.address[-4:])
     period = (stats.get("periods") or {}).get("30d") or {}
@@ -272,7 +289,7 @@ def _card(leader: Leader) -> dict:
             coins.append(row["coin"])
         if len(coins) == 3:
             break
-    return {
+    card = {
         "id": str(leader.id),
         "name": name,
         "address": leader.address,
@@ -283,17 +300,20 @@ def _card(leader: Leader) -> dict:
         "pnl": round(pnl, 2),
         "dd": round(dd, 1),
         "waiting": bool(stats.get("waiting")),
-        "positions": positions,
-        "history": history,
-        "curve": [point[1] for point in curve if isinstance(point, (list, tuple)) and len(point) > 1],
         "longPct": round(long_pct, 1),
         "coins": " · ".join(coins) if coins else "—",
         "bias": bias,
         "risk": risk,
     }
+    if detail:
+        card["positions"] = positions
+        card["history"] = history
+        card["curve"] = [point[1] for point in curve if isinstance(point, (list, tuple)) and len(point) > 1]
+    return card
 
 
 def wallet_cards(*, force: bool = False) -> list[dict]:
+    """列表/排行榜用瘦卡片，不含持仓曲线。"""
     ensure_leaders()
     rev = wallet_rev()
     now = time.monotonic()
@@ -306,9 +326,24 @@ def wallet_cards(*, force: bool = False) -> list[dict]:
         )
         if hit:
             return list(_CARD_CACHE["rows"])
-    rows = [_card(leader) for leader in Leader.objects.filter(enabled=True).select_related("snapshot").order_by("id")]
+    rows = [
+        _card(leader, detail=False)
+        for leader in Leader.objects.filter(enabled=True).select_related("snapshot").order_by("id")
+    ]
     with _CARD_LOCK:
         _CARD_CACHE["rev"] = rev
         _CARD_CACHE["at"] = now
         _CARD_CACHE["rows"] = rows
     return list(rows)
+
+
+def wallet_detail(leader_id: str | int) -> dict | None:
+    ensure_leaders()
+    try:
+        pk = int(leader_id)
+    except (TypeError, ValueError):
+        return None
+    leader = Leader.objects.filter(pk=pk, enabled=True).select_related("snapshot").first()
+    if leader is None:
+        return None
+    return _card(leader, detail=True)

@@ -198,6 +198,7 @@ async function permission(){
 }
 var walletRev = live && live.wallet_rev ? live.wallet_rev : '';
 var lastEventId = 0;
+var pullingWallets = false;
 events.forEach(function(row){ if(row.id > lastEventId) lastEventId = row.id; });
 function applyTape(data){
   if(!data || !data.events) return;
@@ -213,27 +214,28 @@ function applyTape(data){
   } else {
     events = data.events;
   }
-  if(data.wallets) wallets = data.wallets;
-  if(data.wallet_rev) walletRev = data.wallet_rev;
   if(data.today) live.today = data.today;
   applyState(data);
   render();
-  if(data.wallets){
-    renderLeaderboard();
-    if(typeof paintWallet === 'function') paintWallet();
-  }
   if(booted && pro()) fresh.forEach(alertFor);
   booted = true;
+  if(data.wallet_rev && data.wallet_rev !== walletRev){
+    walletRev = data.wallet_rev;
+    pullWallets();
+  } else if(data.wallet_rev){
+    walletRev = data.wallet_rev;
+  }
 }
 function pull(){
   if(!live) return;
-  var url = '/api/tape/?rev=' + encodeURIComponent(walletRev || '');
-  if(lastEventId) url += '&after=' + lastEventId;
+  var url = '/api/tape/';
+  if(lastEventId) url += '?after=' + lastEventId;
   fetch(url).then(function(res){ return res.json(); }).then(applyTape).catch(function(){});
 }
 function pullWallets(){
-  if(!live) return;
-  fetch('/api/tape/?wallets=1&events=0&rev=' + encodeURIComponent(walletRev || '')).then(function(res){ return res.json(); }).then(function(data){
+  if(!live || pullingWallets) return;
+  pullingWallets = true;
+  fetch('/api/tape/?wallets=1&events=0').then(function(res){ return res.json(); }).then(function(data){
     if(!data) return;
     if(data.wallets){
       wallets = data.wallets;
@@ -242,7 +244,19 @@ function pullWallets(){
       if(typeof paintWallet === 'function') paintWallet();
     }
     applyState(data);
-  }).catch(function(){});
+  }).catch(function(){}).finally(function(){ pullingWallets = false; });
+}
+function loadWalletDetail(id){
+  if(!live || !id) return Promise.resolve(null);
+  return fetch('/api/wallet/?id=' + encodeURIComponent(id)).then(function(res){ return res.json(); }).then(function(data){
+    if(!data || !data.wallet) return null;
+    var card = data.wallet;
+    var index = wallets.findIndex(function(item){ return item.id === card.id; });
+    if(index >= 0) wallets[index] = Object.assign({}, wallets[index], card);
+    else wallets.push(card);
+    applyState(data);
+    return card;
+  }).catch(function(){ return null; });
 }
 document.addEventListener('DOMContentLoaded', function(){
   shell();

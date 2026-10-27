@@ -5,11 +5,15 @@ from __future__ import annotations
 import json
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import timedelta
 
 _STARTED = False
 _REFRESH_SEC = 20
 _HOT_SEC = 6 * 60 * 60
+_REFRESH_WORKERS = 4
+_FULL_PER_CYCLE = 8
+_LIGHT_PER_CYCLE = 24
 
 
 def refresh_due() -> None:
@@ -21,6 +25,8 @@ def refresh_due() -> None:
 
     close_old_connections()
     now = timezone.now()
+    due_full: list = []
+    due_light: list = []
     for leader in Leader.objects.filter(enabled=True).select_related("snapshot"):
         snap = None
         try:
@@ -29,16 +35,37 @@ def refresh_due() -> None:
             snap = None
         age = None if snap is None else now - snap.fetched_at
         if snap is None or age >= timedelta(minutes=5):
-            full = True
+            due_full.append((leader, True, age or timedelta(days=999)))
         elif age >= timedelta(seconds=110):
-            full = False
+            due_light.append((leader, False, age))
         else:
             _paint(snap)
-            continue
+
+    def oldest_first(item):
+        return item[2]
+
+    due_full.sort(key=oldest_first, reverse=True)
+    due_light.sort(key=oldest_first, reverse=True)
+    jobs = [(row[0], row[1]) for row in due_full[:_FULL_PER_CYCLE]]
+    jobs += [(row[0], row[1]) for row in due_light[:_LIGHT_PER_CYCLE]]
+    if not jobs:
+        return
+
+    def work(pair) -> None:
+        leader, full = pair
+        close_old_connections()
         try:
             refresh_leader(leader, full)
         except Exception as exc:
             print(f"刷新 {leader.address[:10]} 失败: {exc}", flush=True)
+        finally:
+            close_old_connections()
+
+    workers = min(_REFRESH_WORKERS, len(jobs))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = [pool.submit(work, job) for job in jobs]
+        for future in as_completed(futures):
+            future.result()
 
 
 def _paint(snap) -> None:
@@ -59,11 +86,21 @@ def _paint(snap) -> None:
 
 def _refresh_loop() -> None:
     while True:
+        started = time.time()
         try:
             refresh_due()
         except Exception as exc:
             print(f"收益刷新失败: {exc}", flush=True)
-        time.sleep(_REFRESH_SEC)
+        # 钱包多时拉长间隔，避免一轮还没完又开下一轮
+        from plaza.models import Leader
+
+        try:
+            count = Leader.objects.filter(enabled=True).count()
+        except Exception:
+            count = 0
+        wait = _REFRESH_SEC if count <= 40 else min(90, _REFRESH_SEC + count // 4)
+        elapsed = time.time() - started
+        time.sleep(max(5.0, wait - elapsed))
 
 
 def _hot_loop() -> None:

@@ -22,6 +22,7 @@ from .tape import (
     toggle_sub,
     visible_events,
     wallet_cards,
+    wallet_detail,
     wallet_rev,
 )
 from .telegram_auth import telegram_ok
@@ -97,7 +98,6 @@ def tape_feed(request):
         after_id = int(after_raw)
     want_wallets = request.GET.get("wallets") == "1"
     skip_events = request.GET.get("events") == "0"
-    client_rev = request.GET.get("rev") or ""
     rev = wallet_rev()
     payload = {
         "pro": is_pro(request),
@@ -114,9 +114,18 @@ def tape_feed(request):
         else:
             rows = visible_events(request)
         payload["events"] = [event_dict(row) for row in rows]
-    if want_wallets or client_rev != rev:
+    # 钱包只在明确要求时返回，避免 3 秒轮询拖大包
+    if want_wallets:
         payload["wallets"] = wallet_cards()
     return JsonResponse(payload)
+
+
+@require_GET
+def wallet_api(request):
+    card = wallet_detail(request.GET.get("id") or "")
+    if card is None:
+        return JsonResponse({"message": "没有这个监控钱包"}, status=404)
+    return JsonResponse({"wallet": card, "pro": is_pro(request), "subs": subscriptions(request)})
 
 
 @require_POST

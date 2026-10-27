@@ -12,6 +12,7 @@ urlpatterns = [
     path("wallet/", lambda request: scope_pages.render_scope(request, "wallet"), name="wallet"),
     path("api/tape/", scope_pages.tape_feed, name="tape_feed"),
     path("api/tape/test/", scope_pages.tape_test, name="tape_test"),
+    path("api/wallet/", scope_pages.wallet_api, name="wallet_api"),
     path("api/membership/", scope_pages.membership, name="membership"),
     path("api/subscribe/", scope_pages.subscribe, name="subscribe"),
     path("auth/telegram/callback", scope_pages.telegram_callback, name="telegram_callback"),

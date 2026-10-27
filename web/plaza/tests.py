@@ -477,18 +477,22 @@ class ScopePageTests(TestCase):
         self.assertNotIn(fresh.id, free_ids)
         self.assertNotIn(recent.id, free_ids)
         self.assertIn("wallet_rev", free)
-        card = next(row for row in free["wallets"] if row["id"] == str(leader.id))
+        self.assertNotIn("wallets", free)
+        listed = self.client.get("/api/tape/?wallets=1&events=0").json()
+        card = next(row for row in listed["wallets"] if row["id"] == str(leader.id))
         self.assertEqual(card["roi"], 12.0)
-        self.assertEqual(card["positions"][0]["coin"], "BTC")
-        self.assertEqual(card["history"][0]["side"], "平空")
+        self.assertNotIn("positions", card)
         self.assertGreater(card["dd"], 0)
+        detail = self.client.get(f"/api/wallet/?id={leader.id}").json()["wallet"]
+        self.assertEqual(detail["positions"][0]["coin"], "BTC")
+        self.assertEqual(detail["history"][0]["side"], "平空")
 
         self.client.post("/api/membership/", data=json.dumps({"pro": True}), content_type="application/json")
         pro_ids = [row["id"] for row in self.client.get("/api/tape/").json()["events"]]
         self.assertIn(recent.id, pro_ids)
         self.assertNotIn(fresh.id, pro_ids)
         # 增量：id 大于 after，且已过 Pro 延迟（按创建顺序 fresh < recent < older）
-        incr = self.client.get(f"/api/tape/?after={fresh.id}&rev={free['wallet_rev']}").json()
+        incr = self.client.get(f"/api/tape/?after={fresh.id}").json()
         self.assertTrue(incr["incremental"])
         incr_ids = [row["id"] for row in incr["events"]]
         self.assertIn(recent.id, incr_ids)
