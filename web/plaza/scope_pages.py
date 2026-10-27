@@ -71,16 +71,34 @@ def boot(request) -> dict:
     }
 
 
-@ensure_csrf_cookie
-def render_scope(request, name: str) -> HttpResponse:
+_HTML_SHELL: dict[str, str] = {}
+
+
+def _scope_html(name: str) -> str:
+    cached = _HTML_SHELL.get(name)
+    if cached is not None:
+        return cached
     raw = (settings.HYPE_ROOT / "alphascope-simple" / PAGES[name]).read_text(encoding="utf-8")
     for old, new in LINKS:
         raw = raw.replace(old, new)
-    payload = json.dumps(boot(request), ensure_ascii=False).replace("<", "\\u003c")
+    _HTML_SHELL[name] = raw
+    return raw
+
+
+@ensure_csrf_cookie
+def render_scope(request, name: str) -> HttpResponse:
+    raw = _scope_html(name)
+    # 会员页不需要塞全量钱包；详情页首屏只要瘦列表，厚数据走 /api/wallet/
+    if name == "pricing":
+        data = boot(request)
+        data["wallets"] = []
+        data["events"] = []
+        payload = json.dumps(data, ensure_ascii=False).replace("<", "\\u003c")
+    else:
+        payload = json.dumps(boot(request), ensure_ascii=False).replace("<", "\\u003c")
     script = f'<script>window.ALPHASCOPE={payload}</script>'
     marker = f'<script src="{static("telegram-auth.js")}"></script>'
-    raw = raw.replace(marker, script + marker, 1)
-    return HttpResponse(raw)
+    return HttpResponse(raw.replace(marker, script + marker, 1))
 
 
 def _body(request) -> dict:

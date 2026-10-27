@@ -13,14 +13,31 @@ mkdir -p data
 ./.venv/bin/python manage.py collectstatic --noinput >/dev/null
 ./.venv/bin/python manage.py migrate --noinput >/dev/null
 
+# 监控是后台进程，宝塔停 gunicorn 时不会一起杀掉；每次启动先清干净
+pkill -f 'manage.py run_monitor' 2>/dev/null || true
 if [ -f data/monitor.pid ]; then
   old=$(cat data/monitor.pid || true)
-  if [ -n "${old}" ] && kill -0 "$old" 2>/dev/null; then
+  if [ -n "${old}" ]; then
     kill "$old" 2>/dev/null || true
-    sleep 1
   fi
   rm -f data/monitor.pid
 fi
+sleep 1
+
+# 旧网页占着 8766 时，新 gunicorn 起不来，宝塔却以为重启成功
+if command -v fuser >/dev/null 2>&1; then
+  fuser -k 8766/tcp 2>/dev/null || true
+else
+  pkill -f 'gunicorn config.wsgi' 2>/dev/null || true
+fi
+if [ -f data/gunicorn.pid ]; then
+  gpid=$(cat data/gunicorn.pid || true)
+  if [ -n "${gpid}" ]; then
+    kill "$gpid" 2>/dev/null || true
+  fi
+  rm -f data/gunicorn.pid
+fi
+sleep 1
 
 ./.venv/bin/python manage.py run_monitor >>data/monitor.log 2>&1 &
 echo $! > data/monitor.pid
