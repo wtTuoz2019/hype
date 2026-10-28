@@ -17,6 +17,7 @@ from .tape import (
     PRO_DELAY,
     adopt_session,
     event_dict,
+    front_profile,
     is_pro,
     set_pro,
     subscriptions,
@@ -49,13 +50,14 @@ LINKS = (
 
 
 def _user(request) -> dict | None:
-    if not request.user.is_authenticated:
+    """只有 Telegram 会员才在前台显示已登录；后台 admin 不算。"""
+    profile = front_profile(request)
+    if profile is None:
         return None
-    profile = getattr(request.user, "profile", None)
-    name = (profile.telegram_name if profile else "") or request.user.get_username()
-    handle = profile.telegram_username if profile else ""
+    name = profile.telegram_name or request.user.get_username()
+    handle = profile.telegram_username or ""
     label = f"@{handle}" if handle else name
-    return {"label": label, "photo": (profile.telegram_photo if profile else "") or ""}
+    return {"label": label, "photo": profile.telegram_photo or ""}
 
 
 def boot(request) -> dict:

@@ -507,6 +507,14 @@ class ScopePageTests(TestCase):
         self.assertEqual(preview.json()["event"]["id"], recent.id)
         self.assertEqual(TradeSignal.objects.count(), before)
 
+    def test_admin_login_does_not_show_on_frontend(self):
+        User.objects.create_superuser("admin", "admin@example.com", "long-enough-pass")
+        self.assertTrue(self.client.login(username="admin", password="long-enough-pass"))
+        home = self.client.get("/")
+        self.assertContains(home, "Telegram 登录")
+        self.assertContains(home, '"user": null')
+        self.assertNotContains(home, "@admin")
+
     @override_settings(TELEGRAM_BOT_TOKEN="123:ABC", TELEGRAM_BOT_USERNAME="AlphaScopeBot")
     def test_telegram_login_checks_signature(self):
         payload = {

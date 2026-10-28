@@ -22,17 +22,30 @@ _TODAY_CACHE: dict = {}
 _TODAY_TTL = 20.0
 
 
+def front_profile(request):
+    """前台会员：必须是 Telegram 登录绑定过的账号。后台 admin 登录不算前台会员。"""
+    if not request.user.is_authenticated:
+        return None
+    profile = getattr(request.user, "profile", None)
+    if profile is None or profile.telegram_id is None:
+        return None
+    return profile
+
+
 def is_pro(request) -> bool:
-    if request.user.is_authenticated:
-        profile = getattr(request.user, "profile", None)
-        if profile is not None and profile.is_pro:
-            return True
+    profile = front_profile(request)
+    if profile is not None and profile.is_pro:
+        return True
     return bool(request.session.get("tape_pro"))
 
 
 def subscriptions(request) -> list[str]:
-    if request.user.is_authenticated:
-        return [str(item) for item in AlertSub.objects.filter(user=request.user).values_list("leader_id", flat=True)]
+    profile = front_profile(request)
+    if profile is not None:
+        return [
+            str(item)
+            for item in AlertSub.objects.filter(user=request.user).values_list("leader_id", flat=True)
+        ]
     return [str(item) for item in (request.session.get("tape_subs") or [])]
 
 
@@ -41,10 +54,8 @@ def set_pro(request, enabled: bool) -> None:
     if not enabled:
         request.session["tape_subs"] = []
     request.session.modified = True
-    if request.user.is_authenticated:
-        from .models import Profile
-
-        profile, _created = Profile.objects.get_or_create(user=request.user)
+    profile = front_profile(request)
+    if profile is not None:
         profile.is_pro = bool(enabled)
         profile.save(update_fields=["is_pro"])
         if not enabled:
@@ -59,7 +70,7 @@ def toggle_sub(request, code: str) -> list[str]:
     leader = Leader.objects.filter(pk=leader_id, enabled=True).first()
     if leader is None:
         return subscriptions(request)
-    if request.user.is_authenticated:
+    if front_profile(request) is not None:
         row = AlertSub.objects.filter(user=request.user, leader=leader).first()
         if row:
             row.delete()
@@ -78,12 +89,10 @@ def toggle_sub(request, code: str) -> list[str]:
 
 
 def adopt_session(request) -> None:
-    """登录后把这次浏览里的会员和订阅记到账号上。"""
-    if not request.user.is_authenticated:
+    """Telegram 登录后把这次浏览里的会员和订阅记到账号上。"""
+    profile = front_profile(request)
+    if profile is None:
         return
-    from .models import Profile
-
-    profile, _created = Profile.objects.get_or_create(user=request.user)
     if request.session.get("tape_pro"):
         profile.is_pro = True
         profile.save(update_fields=["is_pro"])
