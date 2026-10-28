@@ -12,7 +12,7 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_POST
 
 from . import wallet_auth
-from .models import Profile, TelegramAuth
+from .models import Profile
 from .tape import (
     FREE_DELAY,
     PRO_DELAY,
