@@ -50,22 +50,28 @@ window.onTelegramAuth = function(user){
   });
 };
 function goTelegramOauth(){
-  // 整页跳官方授权，再回调回本站；避开 dialog + iframe 弹窗回调丢失
-  location.href = '/auth/telegram/start/';
-}
-function widget(note){
-  var bot = live && live.bot;
-  if(!bot && !(live && live.botId)){
-    panel('Telegram 登录','<p class="login-subtitle">服务端还没有配置机器人。设置环境变量 TELEGRAM_BOT_USERNAME 和 TELEGRAM_BOT_TOKEN 后，这里会显示 Telegram 官方登录。</p><button class="login-back" onclick="openTelegramLogin()">← 返回</button>');
+  if(!(live && (live.botId || live.bot))){
+    panel('Telegram 登录','<p class="login-subtitle">服务端还没有配置机器人。设置环境变量 TELEGRAM_BOT_USERNAME 和 TELEGRAM_BOT_TOKEN 后再试。</p><button class="login-back" onclick="openTelegramLogin()">← 返回</button>');
     return;
   }
-  panel(
-    'Telegram 登录',
-    '<p class="login-subtitle">'+note+'</p>'+
-    '<button class="login-primary" type="button" onclick="goTelegramOauth()">打开 Telegram 授权</button>'+
-    '<p class="login-security">将跳转到 Telegram 官方页面确认。回来后若仍未登录，请检查 BotFather 域名是否为 p.c7.pro。</p>'+
-    '<button class="login-back" onclick="openTelegramLogin()">← 返回</button>'
-  );
+  // 小窗授权：主页面保持打开，授权完小窗关闭并刷新主页
+  panel('Telegram 登录','<p class="login-subtitle">请在弹出的窗口里确认授权。完成后会自动回到本页。</p><p class="login-security">如果没有弹出窗口，请允许本站弹窗后重试。</p><button class="login-back" onclick="openTelegramLogin()">← 返回</button>');
+  var popup = window.open('/auth/telegram/start/','tg_login','width=520,height=640,menubar=no,toolbar=no,status=no,noopener=no');
+  if(!popup){
+    panel(
+      '需要允许弹窗',
+      '<p class="login-subtitle">浏览器拦截了授权窗口。</p>'+
+      '<button class="login-primary" type="button" onclick="window.open(\'/auth/telegram/start/\',\'_blank\')">再次打开授权</button>'+
+      '<button class="login-back" onclick="openTelegramLogin()">← 返回</button>'
+    );
+    return;
+  }
+  var timer = setInterval(function(){
+    if(!popup || popup.closed){
+      clearInterval(timer);
+      location.reload();
+    }
+  }, 900);
 }
 function okxProvider(){
   if(window.okxwallet && window.okxwallet.ethereum) return window.okxwallet.ethereum;

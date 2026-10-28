@@ -525,7 +525,8 @@ class ScopePageTests(TestCase):
         }
         signed = _telegram_query(payload, "123:ABC")
         response = self.client.get("/auth/telegram/callback", signed)
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "登录成功")
         self.assertTrue(User.objects.filter(username="tg_42").exists())
         home = self.client.get("/")
         self.assertContains(home, "@ada")
@@ -701,6 +702,7 @@ class ScopePageTests(TestCase):
         }
         signed = _telegram_query(payload, "123:ABC")
         response = self.client.get("/auth/telegram/callback", signed)
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "登录成功")
         home = self.client.get("/")
         self.assertContains(home, "@bob")

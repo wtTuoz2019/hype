@@ -225,7 +225,25 @@ def telegram_callback(request):
     if err:
         status = 503 if "机器人" in err else 403
         return _telegram_error(err, status)
-    return redirect("home")
+    # 授权小窗：刷新原页面并关闭自己；普通跳转则回首页
+    return HttpResponse(
+        """<!doctype html><meta charset="utf-8"><title>登录成功</title>
+<script>
+(function () {
+  try {
+    if (window.opener && !window.opener.closed) {
+      window.opener.location.href = "/";
+      window.close();
+      return;
+    }
+  } catch (e) {}
+  location.replace("/");
+})();
+</script>
+<p style="font:15px/1.6 sans-serif;margin:40px 20px">登录成功，正在返回… <a href="/">点这里回首页</a></p>
+""",
+        content_type="text/html; charset=utf-8",
+    )
 
 
 @require_POST
