@@ -38,16 +38,26 @@ PAGES = {
     "pricing": "pricing.html",
     "wallet": "wallet-detail.html",
 }
-LINKS = (
-    ("wallet-detail.html", "/wallet/"),
-    ("leaderboard.html", "/leaderboard/"),
-    ("analysis.html", "/analysis/"),
-    ("pricing.html", "/pricing/"),
-    ("index.html", "/"),
-    ('href="style.css"', f'href="{static("style.css")}"'),
-    ('src="telegram-auth.js"', f'src="{static("telegram-auth.js")}"'),
-    ('src="app.js"', f'src="{static("app.js")}"'),
-)
+
+
+def _asset(name: str) -> str:
+    """静态资源带 mtime，避免浏览器/CDN 继续用旧的登录脚本。"""
+    path = settings.HYPE_ROOT / "alphascope-simple" / name
+    ver = int(path.stat().st_mtime) if path.exists() else 0
+    return f"{static(name)}?v={ver}"
+
+
+def _links() -> tuple[tuple[str, str], ...]:
+    return (
+        ("wallet-detail.html", "/wallet/"),
+        ("leaderboard.html", "/leaderboard/"),
+        ("analysis.html", "/analysis/"),
+        ("pricing.html", "/pricing/"),
+        ("index.html", "/"),
+        ('href="style.css"', f'href="{_asset("style.css")}"'),
+        ('src="telegram-auth.js"', f'src="{_asset("telegram-auth.js")}"'),
+        ('src="app.js"', f'src="{_asset("app.js")}"'),
+    )
 
 
 def _user(request) -> dict | None:
@@ -92,7 +102,7 @@ def _scope_html(name: str) -> str:
     if cached is not None:
         return cached
     raw = (settings.HYPE_ROOT / "alphascope-simple" / PAGES[name]).read_text(encoding="utf-8")
-    for old, new in LINKS:
+    for old, new in _links():
         raw = raw.replace(old, new)
     _HTML_SHELL[name] = raw
     return raw
@@ -110,7 +120,11 @@ def render_scope(request, name: str) -> HttpResponse:
     else:
         payload = json.dumps(boot(request), ensure_ascii=False).replace("<", "\\u003c")
     script = f'<script>window.ALPHASCOPE={payload}</script>'
-    marker = f'<script src="{static("telegram-auth.js")}"></script>'
+    auth_js = _asset("telegram-auth.js")
+    marker = f'<script src="{auth_js}"></script>'
+    # 兼容旧壳子里还没带 ?v= 的引用
+    if marker not in raw:
+        marker = f'<script src="{static("telegram-auth.js")}"></script>'
     return HttpResponse(raw.replace(marker, script + marker, 1))
 
 
