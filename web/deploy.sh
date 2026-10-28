@@ -14,6 +14,7 @@ cd "$ROOT"
 git pull
 cd "$ROOT/web"
 
+./.venv/bin/pip install -r requirements.txt
 ./.venv/bin/python manage.py migrate --noinput
 ./.venv/bin/python manage.py collectstatic --noinput
 chown -R www:www staticfiles data 2>/dev/null || true

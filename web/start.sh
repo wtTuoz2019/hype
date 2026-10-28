@@ -10,6 +10,7 @@ set +a
 unset HYPE_MONITOR
 
 mkdir -p data
+./.venv/bin/pip install -q -r requirements.txt
 ./.venv/bin/python manage.py collectstatic --noinput >/dev/null
 ./.venv/bin/python manage.py migrate --noinput >/dev/null
 
