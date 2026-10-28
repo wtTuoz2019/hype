@@ -63,19 +63,27 @@ def _links() -> tuple[tuple[str, str], ...]:
 
 
 def _user(request) -> dict | None:
-    """前台会员才显示已登录；后台 admin 不算。"""
+    """前台会员才显示已登录；后台 admin 不算。优先显示昵称。"""
     profile = front_profile(request)
     if profile is None:
         return None
-    if profile.telegram_username:
-        label = f"@{profile.telegram_username}"
-    elif profile.telegram_name:
-        label = profile.telegram_name
+    handle = (profile.telegram_username or "").strip()
+    name = (profile.telegram_name or "").strip()
+    if not name:
+        name = f"{profile.telegram_first_name} {profile.telegram_last_name}".strip()
+    if name:
+        label = name
+    elif handle:
+        label = f"@{handle}"
     elif profile.wallet_address:
         label = wallet_auth.short_address(profile.wallet_address)
     else:
         label = request.user.get_username()
-    return {"label": label, "photo": profile.telegram_photo or ""}
+    return {
+        "label": label,
+        "handle": handle,
+        "photo": profile.telegram_photo or "",
+    }
 
 
 def _telegram_bot_id() -> str:
@@ -324,10 +332,10 @@ a{{color:#2563eb}}
 .tip{{font-size:12px;color:#94a3b8}}
 </style></head><body><main>
 <h1>Telegram 登录</h1>
-<p>点击下方蓝色按钮。授权后会自动跳回首页。机器人：{token_hint}</p>
+<p>点下方按钮完成授权，随后自动回到首页。</p>
 <div id="tg-widget"></div>
-<p class="tip">点按钮后页面会跳转，属正常现象；完成后回到 AlphaScope 即已登录。</p>
-<p><a href="/">← 返回首页</a></p>
+<p class="tip">机器人 {token_hint} · 跳转属正常现象</p>
+<p><a href="/">← 返回首页</a> · <a href="/?login=okx">改用 OKX 钱包</a></p>
 </main>
 <script>
 (function(){{

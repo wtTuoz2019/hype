@@ -1,4 +1,4 @@
-/* Telegram：跳独立登录页（官方 Widget onauth）。OKX：页内签名登录。 */
+/* Telegram：一键进官方授权页。OKX：页内签名登录。 */
 (function(){
 var live = window.ALPHASCOPE || null;
 function esc(value){return String(value||'').replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];});}
@@ -8,7 +8,8 @@ function refresh(){
     var user = live && live.user;
     if(!user){el.innerHTML='<button class="tg-login" type="button" onclick="openTelegramLogin()">登录</button>';return;}
     var photo = user.photo ? '<img class="tg-avatar" alt="" src="'+esc(user.photo)+'">' : '';
-    el.innerHTML='<span class="tg-user">'+photo+esc(user.label)+'</span><button class="tg-login" type="button" onclick="logoutTelegram()">退出</button>';
+    var tip = user.handle ? ('@' + user.handle) : (user.label || '');
+    el.innerHTML='<span class="tg-user" title="'+esc(tip)+'">'+photo+'<span class="tg-name">'+esc(user.label)+'</span></span><button class="tg-login" type="button" onclick="logoutTelegram()">退出</button>';
   });
 }
 function dlg(){var node=document.getElementById('tg-login-dialog');if(!node){node=document.createElement('dialog');node.id='tg-login-dialog';node.className='tg-dialog login-chooser';document.body.appendChild(node);}return node;}
@@ -38,7 +39,6 @@ function finishLogin(data){
   location.reload();
 }
 function goTelegramOauth(){
-  // 独立页里点官方按钮，避免 dialog/小窗回调丢失
   location.href = '/auth/telegram/start/';
 }
 function okxProvider(){
@@ -56,15 +56,11 @@ function okxProvider(){
 window.openTelegramLogin=function(){
   panel(
     '登录 AlphaScope',
-    '<p class="login-subtitle">选择你熟悉的登录方式</p>'+
-    '<button class="login-choice" onclick="telegramWeb()"><span class="login-choice-icon">✈</span><span><b>Telegram 登录</b><small>跳转官方授权页</small></span><span>›</span></button>'+
-    '<div class="login-divider">或使用钱包</div>'+
-    '<button class="login-choice" onclick="loginWithOkx()"><span class="login-choice-icon okx">◆</span><span><b>OKX 钱包登录</b><small>浏览器扩展 / OKX Web3</small></span><span>›</span></button>'+
-    '<p class="login-security">OKX 登录只需签名一次证明地址归属，不会转账，也不会索取助记词。</p>'
+    '<p class="login-subtitle">选择登录方式</p>'+
+    '<button class="login-choice" onclick="goTelegramOauth()"><span class="login-choice-icon">✈</span><span><b>Telegram</b><small>推荐 · 一键授权</small></span><span>›</span></button>'+
+    '<button class="login-choice" onclick="loginWithOkx()"><span class="login-choice-icon okx">◆</span><span><b>OKX 钱包</b><small>签名登录，不转账</small></span><span>›</span></button>'
   );
 };
-window.telegramWeb=function(){goTelegramOauth();};
-window.telegramClient=function(){goTelegramOauth();};
 window.goTelegramOauth=goTelegramOauth;
 window.loginWithOkx=async function(){
   var provider = okxProvider();
@@ -99,11 +95,13 @@ window.loginWithOkx=async function(){
     panel(
       'OKX 登录未完成',
       '<p class="login-subtitle">'+esc(tip)+'</p>'+
-      '<button class="login-back" onclick="openTelegramLogin()">← 返回</button>'+
-      '<p class="login-security">只会请求一次签名登录，不会要求转账或输入助记词。</p>'
+      '<button class="login-back" onclick="openTelegramLogin()">← 返回</button>'
     );
   }
 };
 window.logoutTelegram=function(){fetch('/logout/',{method:'POST',headers:{'X-CSRFToken':csrf()}}).then(function(){location.href='/';});};
-document.addEventListener('DOMContentLoaded', refresh);
+document.addEventListener('DOMContentLoaded', function(){
+  refresh();
+  if(location.search.indexOf('login=okx') >= 0) loginWithOkx();
+});
 })();

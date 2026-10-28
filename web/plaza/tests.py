@@ -528,7 +528,8 @@ class ScopePageTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertTrue(User.objects.filter(username="tg_42").exists())
         home = self.client.get("/")
-        self.assertContains(home, "@ada")
+        self.assertContains(home, "Ada")
+        self.assertContains(home, '"handle": "ada"')
         self.assertEqual(self.client.get("/auth/telegram/callback", signed).status_code, 403)
         bad = dict(signed)
         bad["hash"] = "0" * 64
@@ -569,9 +570,10 @@ class ScopePageTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["user"]["label"], "@cara")
+        self.assertEqual(response.json()["user"]["label"], "Cara")
+        self.assertEqual(response.json()["user"]["handle"], "cara")
         home = self.client.get("/")
-        self.assertContains(home, "@cara")
+        self.assertContains(home, "Cara")
 
     def test_okx_wallet_login_requires_signature(self):
         from eth_account import Account
@@ -715,4 +717,4 @@ class ScopePageTests(TestCase):
         response = self.client.get("/auth/telegram/callback", signed)
         self.assertEqual(response.status_code, 302)
         home = self.client.get("/")
-        self.assertContains(home, "@bob")
+        self.assertContains(home, "Bob")
