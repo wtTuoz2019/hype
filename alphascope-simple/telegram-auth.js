@@ -1,4 +1,4 @@
-/* Telegram 官方登录 + OKX 钱包签名登录。不索取助记词/私钥，登录签名不转账。 */
+/* Telegram 官方登录（onauth 直传）+ OKX 钱包签名登录。 */
 (function(){
 var live = window.ALPHASCOPE || null;
 function esc(value){return String(value||'').replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];});}
@@ -13,6 +13,42 @@ function refresh(){
 }
 function dlg(){var node=document.getElementById('tg-login-dialog');if(!node){node=document.createElement('dialog');node.id='tg-login-dialog';node.className='tg-dialog login-chooser';document.body.appendChild(node);}return node;}
 function panel(title, body){var node=dlg();node.innerHTML='<div class="login-heading"><strong>'+title+'</strong><button aria-label="关闭" class="login-close" onclick="document.getElementById(\'tg-login-dialog\').close()">×</button></div>'+body;if(!node.open)node.showModal();}
+function closeDlg(){var node=document.getElementById('tg-login-dialog');if(node && node.open) node.close();}
+function postJson(url, body){
+  return fetch(url,{
+    method:'POST',
+    credentials:'same-origin',
+    headers:{'Content-Type':'application/json','X-CSRFToken':csrf()},
+    body:JSON.stringify(body||{})
+  }).then(async function(res){
+    var data={};
+    try{data=await res.json();}catch(e){}
+    if(!res.ok) throw new Error((data && data.message) || '请求失败');
+    return data;
+  });
+}
+function finishLogin(data){
+  if(live){
+    live.user = data.user || null;
+    if('pro' in data) live.pro = !!data.pro;
+    if(data.subs) live.subs = data.subs;
+  }
+  refresh();
+  closeDlg();
+  // 刷新整页，让会员态 / 延迟 / 焦点与会话对齐
+  location.reload();
+}
+window.onTelegramAuth = function(user){
+  panel('Telegram 登录','<p class="login-subtitle">正在完成登录…</p>');
+  postJson('/auth/telegram/', user).then(finishLogin).catch(function(error){
+    panel(
+      'Telegram 登录失败',
+      '<p class="login-subtitle">'+esc((error && error.message) || '登录失败')+'</p>'+
+      '<button class="login-back" onclick="openTelegramLogin()">← 返回重试</button>'+
+      '<p class="login-security">请确认 BotFather 已把域名设为 p.c7.pro，且服务器 TELEGRAM_BOT_TOKEN 与机器人一致。</p>'
+    );
+  });
+};
 function widget(note){
   var bot = live && live.bot;
   if(!bot){panel('Telegram 登录','<p class="login-subtitle">服务端还没有配置机器人。设置环境变量 TELEGRAM_BOT_USERNAME 和 TELEGRAM_BOT_TOKEN 后，这里会显示 Telegram 官方登录。</p><button class="login-back" onclick="openTelegramLogin()">← 返回</button>');return;}
@@ -22,7 +58,7 @@ function widget(note){
   script.src='https://telegram.org/js/telegram-widget.js?22';
   script.setAttribute('data-telegram-login', bot);
   script.setAttribute('data-size','large');
-  script.setAttribute('data-auth-url', live.authUrl);
+  script.setAttribute('data-onauth', 'onTelegramAuth');
   script.setAttribute('data-request-access','write');
   document.getElementById('tg-widget').appendChild(script);
 }
@@ -37,19 +73,6 @@ function okxProvider(){
     }
   }
   return null;
-}
-function postJson(url, body){
-  return fetch(url,{
-    method:'POST',
-    credentials:'same-origin',
-    headers:{'Content-Type':'application/json','X-CSRFToken':csrf()},
-    body:JSON.stringify(body||{})
-  }).then(async function(res){
-    var data={};
-    try{data=await res.json();}catch(e){}
-    if(!res.ok) throw new Error((data && data.message) || '请求失败');
-    return data;
-  });
 }
 window.openTelegramLogin=function(){
   panel(
@@ -91,10 +114,7 @@ window.loginWithOkx=async function(){
       message: challenge.message,
       signature: signature
     });
-    if(live) live.user = result.user;
-    refresh();
-    var node = document.getElementById('tg-login-dialog');
-    if(node && node.open) node.close();
+    finishLogin(result);
   }catch(error){
     var tip = (error && error.message) ? error.message : '连接或签名已取消';
     panel(

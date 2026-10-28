@@ -194,25 +194,53 @@ function selectFilter(name, el){
 }
 function voiceMode(){ return localStorage.getItem('as_voice_mode') === 'subs' ? 'subs' : 'all'; }
 function setVoiceMode(mode){ localStorage.setItem('as_voice_mode', mode === 'subs' ? 'subs' : 'all'); updateVoiceUI(); }
-function saveVoiceEnabled(){ localStorage.setItem('as_voice_on', $('#voice-on') && $('#voice-on').checked ? '1' : '0'); }
+function saveVoiceEnabled(){
+  localStorage.setItem('as_voice_on', $('#voice-on') && $('#voice-on').checked ? '1' : '0');
+  if($('#voice-on') && $('#voice-on').checked) unlockVoice();
+}
 function updateVoiceUI(){
   if($('#voice-scope')) $('#voice-scope').value = voiceMode();
   if($('#voice-mode-summary')) $('#voice-mode-summary').textContent = voiceMode() === 'all' ? '当前模式：所有监控钱包的新开单都会播报' : '当前模式：仅播报已订阅的 ' + subscriptions().length + ' 个钱包' + (subscriptions().length ? '' : '（还没有订阅钱包，可在下方快讯中订阅）');
   if($('#voice-on')) $('#voice-on').checked = localStorage.getItem('as_voice_on') !== '0';
 }
 function feedback(msg){ if($('#notify')){ $('#notify').textContent = msg; $('#notify').classList.remove('hidden'); } }
+var voiceUnlocked = false;
+function unlockVoice(){
+  if(voiceUnlocked || !('speechSynthesis' in window)) return;
+  voiceUnlocked = true;
+  try{
+    speechSynthesis.resume();
+    var warm = new SpeechSynthesisUtterance(' ');
+    warm.volume = 0;
+    warm.lang = 'zh-CN';
+    speechSynthesis.speak(warm);
+    speechSynthesis.cancel();
+  }catch(e){}
+}
+function voiceEnabled(){
+  var box = $('#voice-on');
+  // Pro 区未渲染时，仍允许按本地开关意图播报（默认开）
+  if(!box) return localStorage.getItem('as_voice_on') !== '0';
+  return !!box.checked;
+}
 function speak(msg){
-  if($('#voice-on') && $('#voice-on').checked && 'speechSynthesis' in window){
+  if(!voiceEnabled() || !('speechSynthesis' in window)) return;
+  unlockVoice();
+  try{
+    speechSynthesis.resume();
     var utter = new SpeechSynthesisUtterance(msg);
     utter.lang = 'zh-CN';
+    utter.rate = 1;
     speechSynthesis.cancel();
     speechSynthesis.speak(utter);
-  }
+  }catch(e){}
 }
 function alertFor(row){
-  var wallet = wallets.find(function(item){ return item.id === row.wallet; });
-  if(!wallet) return;
-  var matches = voiceMode() === 'all' || subscriptions().indexOf(wallet.id) >= 0;
+  if(!pro()) return;
+  // 减仓/平仓不喊，避免加空刷屏把语音打爆
+  if(['开多','开空','加多','加空'].indexOf(row.act) < 0) return;
+  var wallet = walletFor(row);
+  var matches = voiceMode() === 'all' || subscriptions().indexOf(String(wallet.id)) >= 0;
   if(!matches){ feedback('已收到 ' + wallet.name + ' 的新开单；按“仅订阅钱包”模式，本次不播报。'); return; }
   var msg = wallet.name + '，' + row.symbol + ' 合约' + row.act;
   feedback('🔔 ' + msg);
@@ -237,14 +265,15 @@ async function simulate(){
   else feedback('模拟产生一条新信号。免费用户不会即时收到推送，需等待延迟更新；升级 Pro 可开启播报。');
 }
 function testVoice(){
+  unlockVoice();
   if(!pro()){ location.href = '/pricing/?need=alert'; return; }
-  if(!$('#voice-on') || !$('#voice-on').checked){ feedback('请先开启语音播报'); return; }
+  if(!voiceEnabled()){ feedback('请先开启语音播报'); return; }
+  if(!('speechSynthesis' in window)){ feedback('当前浏览器不支持语音播报'); return; }
   var pool = voiceMode() === 'all' ? wallets : wallets.filter(function(wallet){ return subscriptions().indexOf(wallet.id) >= 0; });
   if(!pool.length){ feedback('当前是“仅订阅钱包”模式，请先在下方快讯中订阅一个钱包，再测试播报。'); return; }
   var wallet = pool[0];
   feedback('🔊 测试播报 · ' + wallet.name + '，BTC 合约开多');
-  if('speechSynthesis' in window) speak('语音测试：' + wallet.name + '，BTC 合约开多');
-  else feedback('当前浏览器不支持语音播报');
+  speak('语音测试：' + wallet.name + '，BTC 合约开多');
 }
 async function permission(){
   if('Notification' in window) await Notification.requestPermission();

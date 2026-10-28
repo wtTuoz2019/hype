@@ -534,6 +534,25 @@ class ScopePageTests(TestCase):
         bad["hash"] = "0" * 64
         self.assertEqual(self.client.get("/auth/telegram/callback", bad).status_code, 403)
 
+    @override_settings(TELEGRAM_BOT_TOKEN="123:ABC", TELEGRAM_BOT_USERNAME="AlphaScopeBot")
+    def test_telegram_login_post_onauth(self):
+        payload = {
+            "id": "77",
+            "first_name": "Cara",
+            "username": "cara",
+            "auth_date": str(int(time.time())),
+        }
+        signed = _telegram_query(payload, "123:ABC")
+        response = self.client.post(
+            "/auth/telegram/",
+            data=json.dumps(signed),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["user"]["label"], "@cara")
+        home = self.client.get("/")
+        self.assertContains(home, "@cara")
+
     def test_okx_wallet_login_requires_signature(self):
         from eth_account import Account
         from eth_account.messages import encode_defunct
