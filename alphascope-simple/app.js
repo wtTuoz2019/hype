@@ -136,9 +136,6 @@ function render(){
       ? ('列表约每 ' + poll + ' 秒刷新 · 新开单约 1 分钟后可见')
       : ('列表约每 ' + poll + ' 秒刷新 · 新开单约 30 分钟后可见');
   }
-  if($('#sync-timer-label')){
-    $('#sync-timer-label').textContent = pro() ? '可见倒计时' : '免费延迟';
-  }
 }
 function delaySeconds(){
   if(live && live.delay_sec) return Number(live.delay_sec) || 60;
@@ -152,7 +149,7 @@ function formatCountdown(sec){
     var s = sec % 60;
     return h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
   }
-  return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+  return String(Math.floor(sec / 60)).padStart(2, '0') + ':' + String(sec % 60).padStart(2, '0');
 }
 var countdownLeft = delaySeconds();
 function tickCountdown(){
