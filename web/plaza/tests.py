@@ -550,8 +550,9 @@ class ScopePageTests(TestCase):
             response = self.client.get("/auth/telegram/start/")
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "data-telegram-login")
-        self.assertContains(response, "onTelegramAuth")
+        self.assertContains(response, "data-auth-url")
         self.assertContains(response, "AlphaScopeBot")
+        self.assertContains(response, "/auth/telegram/callback")
 
     @override_settings(TELEGRAM_BOT_TOKEN="123:ABC", TELEGRAM_BOT_USERNAME="AlphaScopeBot")
     def test_telegram_login_post_onauth(self):

@@ -307,6 +307,9 @@ def telegram_start(request):
         # 网络不通时仍展示 widget，但把提示写上
         _ = exc
 
+    # 用 data-auth-url：点「Log in as xxx」会整页跳回调，不依赖 onauth（线上常卡死）
+    host = request.get_host().split(":")[0]
+    auth_url = f"https://{host}/auth/telegram/callback"
     body = f"""<!doctype html>
 <html lang="zh-CN"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -317,30 +320,16 @@ main{{max-width:420px;margin:56px auto;padding:28px;background:#fff;border:1px s
 h1{{margin:0 0 8px;font-size:22px}}
 p{{color:#64748b;margin:0 0 14px}}
 #tg-widget{{margin:18px 0;min-height:44px}}
-#err{{display:none;margin-top:12px;padding:10px 12px;border-radius:10px;background:#fef2f2;color:#b91c1c;font-size:13px}}
 a{{color:#2563eb}}
+.tip{{font-size:12px;color:#94a3b8}}
 </style></head><body><main>
 <h1>Telegram 登录</h1>
-<p>点击下方官方按钮授权。机器人：{token_hint}</p>
+<p>点击下方蓝色按钮。授权后会自动跳回首页。机器人：{token_hint}</p>
 <div id="tg-widget"></div>
-<div id="err"></div>
+<p class="tip">点按钮后页面会跳转，属正常现象；完成后回到 AlphaScope 即已登录。</p>
 <p><a href="/">← 返回首页</a></p>
 </main>
 <script>
-function csrf(){{var m=document.cookie.match(/(?:^|; )csrftoken=([^;]+)/);return m?decodeURIComponent(m[1]):'';}}
-function showErr(msg){{var n=document.getElementById('err');n.style.display='block';n.textContent=msg;}}
-window.onTelegramAuth=function(user){{
-  showErr('正在登录…');
-  fetch('/auth/telegram/',{{
-    method:'POST',credentials:'same-origin',
-    headers:{{'Content-Type':'application/json','X-CSRFToken':csrf()}},
-    body:JSON.stringify(user||{{}})
-  }}).then(async function(res){{
-    var data={{}}; try{{data=await res.json();}}catch(e){{}}
-    if(!res.ok) throw new Error((data&&data.message)||('登录失败 '+res.status));
-    location.replace('/');
-  }}).catch(function(e){{ showErr(e.message||'登录失败'); }});
-}};
 (function(){{
   var s=document.createElement('script');
   s.async=true;
@@ -348,7 +337,7 @@ window.onTelegramAuth=function(user){{
   s.setAttribute('data-telegram-login',{bot!r});
   s.setAttribute('data-size','large');
   s.setAttribute('data-radius','8');
-  s.setAttribute('data-onauth','onTelegramAuth');
+  s.setAttribute('data-auth-url',{auth_url!r});
   s.setAttribute('data-request-access','write');
   document.getElementById('tg-widget').appendChild(s);
 }})();
