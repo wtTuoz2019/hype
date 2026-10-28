@@ -68,10 +68,12 @@ class ProfileAdmin(admin.ModelAdmin):
         "telegram_name",
         "telegram_username",
         "telegram_id",
+        "wallet_address",
         "is_pro",
         "telegram_login_count",
+        "wallet_login_count",
         "telegram_last_login_at",
-        "telegram_first_login_at",
+        "wallet_last_login_at",
         "tg_link",
     )
     list_filter = ("is_pro",)
@@ -80,6 +82,7 @@ class ProfileAdmin(admin.ModelAdmin):
         "telegram_name",
         "telegram_first_name",
         "telegram_id",
+        "wallet_address",
         "user__username",
         "invite_code",
     )
@@ -96,6 +99,10 @@ class ProfileAdmin(admin.ModelAdmin):
         "telegram_first_login_at",
         "telegram_last_login_at",
         "telegram_login_count",
+        "wallet_address",
+        "wallet_first_login_at",
+        "wallet_last_login_at",
+        "wallet_login_count",
         "invite_code",
         "tg_link",
     )

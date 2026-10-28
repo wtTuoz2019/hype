@@ -23,11 +23,11 @@ _TODAY_TTL = 20.0
 
 
 def front_profile(request):
-    """前台会员：必须是 Telegram 登录绑定过的账号。后台 admin 登录不算前台会员。"""
+    """前台会员：Telegram 或 OKX 钱包登录。后台 admin 不算前台会员。"""
     if not request.user.is_authenticated:
         return None
     profile = getattr(request.user, "profile", None)
-    if profile is None or profile.telegram_id is None:
+    if profile is None or not profile.is_front_member:
         return None
     return profile
 

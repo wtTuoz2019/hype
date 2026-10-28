@@ -1,4 +1,4 @@
-/* Telegram 登录走服务端校验。钱包连接只读取公开地址，不算登录。 */
+/* Telegram 官方登录 + OKX 钱包签名登录。不索取助记词/私钥，登录签名不转账。 */
 (function(){
 var live = window.ALPHASCOPE || null;
 function esc(value){return String(value||'').replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];});}
@@ -6,7 +6,7 @@ function csrf(){var match=document.cookie.match(/(?:^|; )csrftoken=([^;]+)/);ret
 function refresh(){
   document.querySelectorAll('#tg-account').forEach(function(el){
     var user = live && live.user;
-    if(!user){el.innerHTML='<button class="tg-login" type="button" onclick="openTelegramLogin()">登录 / 连接钱包</button>';return;}
+    if(!user){el.innerHTML='<button class="tg-login" type="button" onclick="openTelegramLogin()">登录</button>';return;}
     var photo = user.photo ? '<img class="tg-avatar" alt="" src="'+esc(user.photo)+'">' : '';
     el.innerHTML='<span class="tg-user">'+photo+esc(user.label)+'</span><button class="tg-login" type="button" onclick="logoutTelegram()">退出</button>';
   });
@@ -26,19 +26,84 @@ function widget(note){
   script.setAttribute('data-request-access','write');
   document.getElementById('tg-widget').appendChild(script);
 }
-window.openTelegramLogin=function(){panel('登录 AlphaScope','<p class="login-subtitle">选择你熟悉的登录方式</p><button class="login-choice" onclick="telegramWeb()"><span class="login-choice-icon">✈</span><span><b>Telegram 网页版</b><small>通过浏览器授权</small></span><span>›</span></button><button class="login-choice" onclick="telegramClient()"><span class="login-choice-icon">↗</span><span><b>Telegram 客户端</b><small>在手机或电脑客户端授权</small></span><span>›</span></button><div class="login-divider">或使用钱包</div><button class="login-choice" onclick="walletPicker()"><span class="login-choice-icon">◈</span><span><b>连接加密钱包</b><small>MetaMask / 浏览器钱包 / WalletConnect</small></span><span>›</span></button><p class="login-security">钱包连接只读取公开地址，不会变成登录，也不会索取助记词。</p>');};
+function okxProvider(){
+  if(window.okxwallet && window.okxwallet.ethereum) return window.okxwallet.ethereum;
+  if(window.okxwallet) return window.okxwallet;
+  if(window.ethereum){
+    if(window.ethereum.isOkxWallet) return window.ethereum;
+    var list = window.ethereum.providers || [];
+    for(var i=0;i<list.length;i++){
+      if(list[i] && list[i].isOkxWallet) return list[i];
+    }
+  }
+  return null;
+}
+function postJson(url, body){
+  return fetch(url,{
+    method:'POST',
+    credentials:'same-origin',
+    headers:{'Content-Type':'application/json','X-CSRFToken':csrf()},
+    body:JSON.stringify(body||{})
+  }).then(async function(res){
+    var data={};
+    try{data=await res.json();}catch(e){}
+    if(!res.ok) throw new Error((data && data.message) || '请求失败');
+    return data;
+  });
+}
+window.openTelegramLogin=function(){
+  panel(
+    '登录 AlphaScope',
+    '<p class="login-subtitle">选择你熟悉的登录方式</p>'+
+    '<button class="login-choice" onclick="telegramWeb()"><span class="login-choice-icon">✈</span><span><b>Telegram 网页版</b><small>通过浏览器授权</small></span><span>›</span></button>'+
+    '<button class="login-choice" onclick="telegramClient()"><span class="login-choice-icon">↗</span><span><b>Telegram 客户端</b><small>在手机或电脑客户端授权</small></span><span>›</span></button>'+
+    '<div class="login-divider">或使用钱包</div>'+
+    '<button class="login-choice" onclick="loginWithOkx()"><span class="login-choice-icon okx">◆</span><span><b>OKX 钱包登录</b><small>浏览器扩展 / OKX Web3</small></span><span>›</span></button>'+
+    '<p class="login-security">OKX 登录只需签名一次证明地址归属，不会转账，也不会索取助记词。</p>'
+  );
+};
 window.telegramWeb=function(){widget('使用 Telegram 官方组件，在浏览器里确认授权。');};
 window.telegramClient=function(){widget('使用 Telegram 官方组件。若已安装客户端，确认按钮会打开手机或电脑上的 Telegram。');};
-window.walletPicker=function(){panel('连接加密钱包','<p class="login-subtitle">请选择钱包类型。连接之后只显示公开地址，不算登录。</p><button class="login-choice" onclick="connectInjected()"><span class="login-choice-icon">◈</span><span><b>MetaMask / 浏览器钱包</b><small>仅请求读取公开地址</small></span><span>›</span></button><button class="login-choice" onclick="walletConnectDemo()"><span class="login-choice-icon">▦</span><span><b>WalletConnect</b><small>扫码连接（待接入）</small></span><span>›</span></button><button class="login-back" onclick="openTelegramLogin()">← 返回</button><p class="login-security">绝不输入助记词。正式把钱包当作登录还需要一次性签名，这一步没有做。</p>');};
-window.walletConnectDemo=function(){panel('WalletConnect','<p class="login-subtitle">尚未配置 WalletConnect Project ID，扫码连接功能暂不可用。</p><button class="login-back" onclick="walletPicker()">← 返回钱包选择</button>');};
-window.connectInjected=async function(){
-  if(!window.ethereum){panel('浏览器钱包','<p class="login-subtitle">没有检测到可用的 EVM 浏览器钱包。请安装受信任的钱包扩展后重试。</p><button class="login-back" onclick="walletPicker()">← 返回</button>');return;}
+window.loginWithOkx=async function(){
+  var provider = okxProvider();
+  if(!provider){
+    panel(
+      '需要 OKX 钱包',
+      '<p class="login-subtitle">没有检测到 OKX 钱包。请安装 OKX 浏览器插件或打开 OKX App 的 Web3 浏览器后再试。</p>'+
+      '<p class="login-security"><a href="https://www.okx.com/web3" target="_blank" rel="noopener">前往 OKX Web3 下载</a></p>'+
+      '<button class="login-back" onclick="openTelegramLogin()">← 返回</button>'
+    );
+    return;
+  }
+  panel('OKX 钱包登录','<p class="login-subtitle">正在请求连接与签名…请在 OKX 钱包里确认。</p>');
   try{
-    var accounts=await window.ethereum.request({method:'eth_requestAccounts'});
-    var address=accounts&&accounts[0];
-    if(!address)return;
-    panel('已连接钱包（未登录）','<p class="login-subtitle">公开地址：<code>'+esc(address.slice(0,8))+'…'+esc(address.slice(-6))+'</code></p><p class="login-security">网站现在只能读取这个地址。这不是登录，也不会请求转账。</p><button class="login-back" onclick="walletPicker()">← 返回</button>');
-  }catch(error){panel('连接未完成','<p class="login-subtitle">钱包连接已取消或失败。</p><button class="login-back" onclick="walletPicker()">← 返回</button>');}
+    var accounts = await provider.request({method:'eth_requestAccounts'});
+    var address = accounts && accounts[0];
+    if(!address) throw new Error('未拿到钱包地址');
+    var challenge = await postJson('/auth/wallet/nonce/', {address: address});
+    var signature = await provider.request({
+      method:'personal_sign',
+      params:[challenge.message, challenge.address]
+    });
+    var result = await postJson('/auth/wallet/verify/', {
+      address: challenge.address,
+      nonce: challenge.nonce,
+      message: challenge.message,
+      signature: signature
+    });
+    if(live) live.user = result.user;
+    refresh();
+    var node = document.getElementById('tg-login-dialog');
+    if(node && node.open) node.close();
+  }catch(error){
+    var tip = (error && error.message) ? error.message : '连接或签名已取消';
+    panel(
+      'OKX 登录未完成',
+      '<p class="login-subtitle">'+esc(tip)+'</p>'+
+      '<button class="login-back" onclick="openTelegramLogin()">← 返回</button>'+
+      '<p class="login-security">只会请求一次签名登录，不会要求转账或输入助记词。</p>'
+    );
+  }
 };
 window.logoutTelegram=function(){fetch('/logout/',{method:'POST',headers:{'X-CSRFToken':csrf()}}).then(function(){location.href='/';});};
 document.addEventListener('DOMContentLoaded', refresh);

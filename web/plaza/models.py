@@ -35,6 +35,12 @@ class Profile(models.Model):
     telegram_first_login_at = models.DateTimeField("首次登录", null=True, blank=True)
     telegram_last_login_at = models.DateTimeField("最近登录", null=True, blank=True)
     telegram_login_count = models.PositiveIntegerField("登录次数", default=0)
+    wallet_address = models.CharField(
+        "OKX 钱包地址", max_length=42, null=True, blank=True, unique=True, help_text="小写 0x 地址"
+    )
+    wallet_first_login_at = models.DateTimeField("钱包首次登录", null=True, blank=True)
+    wallet_last_login_at = models.DateTimeField("钱包最近登录", null=True, blank=True)
+    wallet_login_count = models.PositiveIntegerField("钱包登录次数", default=0)
 
     class Meta:
         verbose_name = "前台会员"
@@ -45,6 +51,8 @@ class Profile(models.Model):
             return f"@{self.telegram_username}"
         if self.telegram_name:
             return self.telegram_name
+        if self.wallet_address:
+            return self.wallet_address
         return self.user.get_username()
 
     @property
@@ -52,6 +60,10 @@ class Profile(models.Model):
         if self.telegram_username:
             return f"https://t.me/{self.telegram_username}"
         return ""
+
+    @property
+    def is_front_member(self) -> bool:
+        return self.telegram_id is not None or bool(self.wallet_address)
 
 
 class Leader(models.Model):
@@ -327,6 +339,20 @@ class TelegramAuth(models.Model):
     class Meta:
         verbose_name = "Telegram 登录记录"
         verbose_name_plural = "Telegram 登录记录"
+
+
+class WalletLoginNonce(models.Model):
+    """OKX 钱包登录一次性随机码。"""
+
+    address = models.CharField("钱包地址", max_length=42, db_index=True)
+    nonce = models.CharField("随机码", max_length=64, unique=True)
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+    expires_at = models.DateTimeField("过期时间")
+    used = models.BooleanField("已使用", default=False)
+
+    class Meta:
+        verbose_name = "钱包登录随机码"
+        verbose_name_plural = "钱包登录随机码"
 
 
 class Commission(models.Model):

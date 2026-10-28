@@ -11,6 +11,7 @@ from django.templatetags.static import static
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_POST
 
+from . import wallet_auth
 from .models import Profile, TelegramAuth
 from .tape import (
     FREE_DELAY,
@@ -50,13 +51,18 @@ LINKS = (
 
 
 def _user(request) -> dict | None:
-    """只有 Telegram 会员才在前台显示已登录；后台 admin 不算。"""
+    """前台会员才显示已登录；后台 admin 不算。"""
     profile = front_profile(request)
     if profile is None:
         return None
-    name = profile.telegram_name or request.user.get_username()
-    handle = profile.telegram_username or ""
-    label = f"@{handle}" if handle else name
+    if profile.telegram_username:
+        label = f"@{profile.telegram_username}"
+    elif profile.telegram_name:
+        label = profile.telegram_name
+    elif profile.wallet_address:
+        label = wallet_auth.short_address(profile.wallet_address)
+    else:
+        label = request.user.get_username()
     return {"label": label, "photo": profile.telegram_photo or ""}
 
 
@@ -243,3 +249,88 @@ def telegram_callback(request):
     login(request, user, backend="django.contrib.auth.backends.ModelBackend")
     adopt_session(request)
     return redirect("home")
+
+
+@require_POST
+def wallet_nonce(request):
+    from django.utils import timezone
+
+    raw = str(_body(request).get("address") or "")
+    try:
+        address = wallet_auth.norm_address(raw)
+    except ValueError:
+        return JsonResponse({"message": "钱包地址无效"}, status=400)
+    row = wallet_auth.issue_nonce(address)
+    host = request.get_host().split(":")[0]
+    issued_at = timezone.now().isoformat(timespec="seconds")
+    message = wallet_auth.build_login_message(
+        host=host, address=address, nonce=row.nonce, issued_at=issued_at
+    )
+    return JsonResponse(
+        {
+            "address": address,
+            "nonce": row.nonce,
+            "message": message,
+            "expires_at": row.expires_at.isoformat(timespec="seconds"),
+        }
+    )
+
+
+@require_POST
+def wallet_verify(request):
+    from django.utils import timezone
+
+    body = _body(request)
+    raw_address = str(body.get("address") or "")
+    nonce = str(body.get("nonce") or "").strip()
+    signature = str(body.get("signature") or "").strip()
+    message = str(body.get("message") or "")
+    try:
+        address = wallet_auth.norm_address(raw_address)
+    except ValueError:
+        return JsonResponse({"message": "钱包地址无效"}, status=400)
+    if not nonce or not signature or not message:
+        return JsonResponse({"message": "缺少签名参数"}, status=400)
+    if address not in message or nonce not in message:
+        return JsonResponse({"message": "签名消息不匹配"}, status=400)
+    if "AlphaScope 登录" not in message:
+        return JsonResponse({"message": "签名消息不匹配"}, status=400)
+    host = request.get_host().split(":")[0]
+    if f"域名: {host}" not in message:
+        return JsonResponse({"message": "登录域名不匹配"}, status=400)
+    try:
+        recovered = wallet_auth.recover_address(message, signature)
+    except Exception:
+        return JsonResponse({"message": "签名无效"}, status=403)
+    if recovered != address:
+        return JsonResponse({"message": "签名地址不匹配"}, status=403)
+    if wallet_auth.consume_nonce(address, nonce) is None:
+        return JsonResponse({"message": "登录码无效或已过期"}, status=403)
+
+    now = timezone.now()
+    profile = Profile.objects.filter(wallet_address=address).select_related("user").first()
+    if profile is None:
+        base = f"okx_{address[2:10]}"
+        username = base
+        n = 0
+        while User.objects.filter(username=username).exists():
+            n += 1
+            username = f"{base}_{n}"
+        user = User.objects.create_user(username=username)
+        profile = Profile.objects.create(
+            user=user,
+            wallet_address=address,
+            wallet_first_login_at=now,
+        )
+    else:
+        user = profile.user
+        if profile.wallet_first_login_at is None:
+            profile.wallet_first_login_at = now
+    profile.wallet_last_login_at = now
+    profile.wallet_login_count = int(profile.wallet_login_count or 0) + 1
+    profile.save(
+        update_fields=["wallet_first_login_at", "wallet_last_login_at", "wallet_login_count"]
+    )
+    login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+    adopt_session(request)
+    return JsonResponse({"ok": True, "user": _user(request)})

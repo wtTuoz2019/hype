@@ -533,3 +533,72 @@ class ScopePageTests(TestCase):
         bad = dict(signed)
         bad["hash"] = "0" * 64
         self.assertEqual(self.client.get("/auth/telegram/callback", bad).status_code, 403)
+
+    def test_okx_wallet_login_requires_signature(self):
+        from eth_account import Account
+        from eth_account.messages import encode_defunct
+        from plaza.models import Profile
+
+        account = Account.create()
+        address = account.address.lower()
+        challenge = self.client.post(
+            "/auth/wallet/nonce/",
+            data=json.dumps({"address": address}),
+            content_type="application/json",
+        )
+        self.assertEqual(challenge.status_code, 200)
+        payload = challenge.json()
+        signed = account.sign_message(encode_defunct(text=payload["message"]))
+        ok = self.client.post(
+            "/auth/wallet/verify/",
+            data=json.dumps(
+                {
+                    "address": address,
+                    "nonce": payload["nonce"],
+                    "message": payload["message"],
+                    "signature": signed.signature.hex(),
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(ok.status_code, 200)
+        self.assertEqual(ok.json()["user"]["label"], f"{address[:6]}…{address[-4:]}")
+        profile = Profile.objects.get(wallet_address=address)
+        self.assertEqual(profile.wallet_login_count, 1)
+        home = self.client.get("/")
+        self.assertContains(home, address[:6])
+        # 同一 nonce 不能再用
+        again = self.client.post(
+            "/auth/wallet/verify/",
+            data=json.dumps(
+                {
+                    "address": address,
+                    "nonce": payload["nonce"],
+                    "message": payload["message"],
+                    "signature": signed.signature.hex(),
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(again.status_code, 403)
+        # 假签名拒绝
+        other = Account.create()
+        bad_sig = other.sign_message(encode_defunct(text=payload["message"]))
+        fresh = self.client.post(
+            "/auth/wallet/nonce/",
+            data=json.dumps({"address": address}),
+            content_type="application/json",
+        ).json()
+        denied = self.client.post(
+            "/auth/wallet/verify/",
+            data=json.dumps(
+                {
+                    "address": address,
+                    "nonce": fresh["nonce"],
+                    "message": fresh["message"],
+                    "signature": bad_sig.signature.hex(),
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(denied.status_code, 403)
