@@ -525,8 +525,7 @@ class ScopePageTests(TestCase):
         }
         signed = _telegram_query(payload, "123:ABC")
         response = self.client.get("/auth/telegram/callback", signed)
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "tg-login")
+        self.assertEqual(response.status_code, 302)
         self.assertTrue(User.objects.filter(username="tg_42").exists())
         home = self.client.get("/")
         self.assertContains(home, "@ada")
@@ -536,12 +535,23 @@ class ScopePageTests(TestCase):
         self.assertEqual(self.client.get("/auth/telegram/callback", bad).status_code, 403)
 
     @override_settings(TELEGRAM_BOT_TOKEN="123:ABC", TELEGRAM_BOT_USERNAME="AlphaScopeBot")
-    def test_telegram_start_redirects_to_oauth(self):
-        response = self.client.get("/auth/telegram/start/")
-        self.assertEqual(response.status_code, 302)
-        self.assertIn("oauth.telegram.org/auth", response["Location"])
-        self.assertIn("bot_id=123", response["Location"])
-        self.assertIn("return_to=", response["Location"])
+    def test_telegram_start_renders_widget_page(self):
+        class _Resp:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return b'{"ok":true,"result":{"username":"AlphaScopeBot","id":123}}'
+
+        with patch("urllib.request.urlopen", return_value=_Resp()):
+            response = self.client.get("/auth/telegram/start/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "data-telegram-login")
+        self.assertContains(response, "onTelegramAuth")
+        self.assertContains(response, "AlphaScopeBot")
 
     @override_settings(TELEGRAM_BOT_TOKEN="123:ABC", TELEGRAM_BOT_USERNAME="AlphaScopeBot")
     def test_telegram_login_post_onauth(self):
@@ -702,7 +712,6 @@ class ScopePageTests(TestCase):
         }
         signed = _telegram_query(payload, "123:ABC")
         response = self.client.get("/auth/telegram/callback", signed)
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, '"ok": true')
+        self.assertEqual(response.status_code, 302)
         home = self.client.get("/")
         self.assertContains(home, "@bob")

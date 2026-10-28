@@ -18,6 +18,7 @@ urlpatterns = [
     path("auth/telegram/callback", scope_pages.telegram_callback, name="telegram_callback"),
     path("auth/telegram/start/", scope_pages.telegram_start, name="telegram_start"),
     path("auth/telegram/", scope_pages.telegram_login, name="telegram_login"),
+    path("api/auth/status/", scope_pages.auth_status, name="auth_status"),
     path("auth/wallet/nonce/", scope_pages.wallet_nonce, name="wallet_nonce"),
     path("auth/wallet/verify/", scope_pages.wallet_verify, name="wallet_verify"),
     path("board/", views.board, name="board"),

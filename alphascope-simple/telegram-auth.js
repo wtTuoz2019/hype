@@ -1,4 +1,4 @@
-/* Telegram 官方登录（小窗授权）+ OKX 钱包签名登录。 */
+/* Telegram：跳独立登录页（官方 Widget onauth）。OKX：页内签名登录。 */
 (function(){
 var live = window.ALPHASCOPE || null;
 function esc(value){return String(value||'').replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];});}
@@ -37,37 +37,9 @@ function finishLogin(data){
   closeDlg();
   location.reload();
 }
-window.addEventListener('message', function(ev){
-  if(ev.origin !== location.origin) return;
-  var data = ev.data || {};
-  if(data.type !== 'tg-login') return;
-  if(data.ok){
-    closeDlg();
-    location.reload();
-    return;
-  }
-  panel(
-    'Telegram 登录失败',
-    '<p class="login-subtitle">'+esc(data.message || '登录失败')+'</p>'+
-    '<button class="login-primary" type="button" onclick="goTelegramOauth()">再试一次</button>'+
-    '<button class="login-back" onclick="openTelegramLogin()">← 返回</button>'
-  );
-});
 function goTelegramOauth(){
-  if(!(live && (live.botId || live.bot))){
-    panel('Telegram 登录','<p class="login-subtitle">服务端还没有配置机器人。设置环境变量 TELEGRAM_BOT_USERNAME 和 TELEGRAM_BOT_TOKEN 后再试。</p><button class="login-back" onclick="openTelegramLogin()">← 返回</button>');
-    return;
-  }
-  panel('Telegram 登录','<p class="login-subtitle">请在弹出的窗口里确认授权。完成后会自动回到本页。</p><p class="login-security">如果没有弹出窗口，请允许本站弹窗后重试。</p><button class="login-back" onclick="openTelegramLogin()">← 返回</button>');
-  var popup = window.open('/auth/telegram/start/','tg_login','width=520,height=640,menubar=no,toolbar=no,status=no');
-  if(!popup){
-    panel(
-      '需要允许弹窗',
-      '<p class="login-subtitle">浏览器拦截了授权窗口。</p>'+
-      '<button class="login-primary" type="button" onclick="window.open(\'/auth/telegram/start/\',\'_blank\')">再次打开授权</button>'+
-      '<button class="login-back" onclick="openTelegramLogin()">← 返回</button>'
-    );
-  }
+  // 独立页里点官方按钮，避免 dialog/小窗回调丢失
+  location.href = '/auth/telegram/start/';
 }
 function okxProvider(){
   if(window.okxwallet && window.okxwallet.ethereum) return window.okxwallet.ethereum;
@@ -85,8 +57,7 @@ window.openTelegramLogin=function(){
   panel(
     '登录 AlphaScope',
     '<p class="login-subtitle">选择你熟悉的登录方式</p>'+
-    '<button class="login-choice" onclick="telegramWeb()"><span class="login-choice-icon">✈</span><span><b>Telegram 网页版</b><small>通过浏览器授权</small></span><span>›</span></button>'+
-    '<button class="login-choice" onclick="telegramClient()"><span class="login-choice-icon">↗</span><span><b>Telegram 客户端</b><small>在手机或电脑客户端授权</small></span><span>›</span></button>'+
+    '<button class="login-choice" onclick="telegramWeb()"><span class="login-choice-icon">✈</span><span><b>Telegram 登录</b><small>跳转官方授权页</small></span><span>›</span></button>'+
     '<div class="login-divider">或使用钱包</div>'+
     '<button class="login-choice" onclick="loginWithOkx()"><span class="login-choice-icon okx">◆</span><span><b>OKX 钱包登录</b><small>浏览器扩展 / OKX Web3</small></span><span>›</span></button>'+
     '<p class="login-security">OKX 登录只需签名一次证明地址归属，不会转账，也不会索取助记词。</p>'

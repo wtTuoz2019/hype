@@ -254,10 +254,9 @@ def telegram_callback(request):
     profile, err = complete_telegram_login(request, request.GET)
     if err:
         return _telegram_bridge(False, err)
-    # 再确认会话已挂上前台会员
     if front_profile(request) is None:
         return _telegram_bridge(False, "授权过了，但会话没建上。请检查浏览器是否拦截了 Cookie。")
-    return _telegram_bridge(True, "")
+    return redirect("/")
 
 
 @require_POST
@@ -267,30 +266,95 @@ def telegram_login(request):
     if err:
         status = 503 if "机器人" in err else 403
         return JsonResponse({"message": err}, status=status)
+    if front_profile(request) is None:
+        return JsonResponse({"message": "授权过了，但会话没建上。请检查浏览器是否拦截了 Cookie。"}, status=500)
     return JsonResponse({"ok": True, "user": _user(request), "pro": is_pro(request), "subs": subscriptions(request)})
 
 
 @require_GET
-def telegram_start(request):
-    """整页跳转 Telegram 官方授权，避免嵌在 dialog/iframe 里回调丢失。"""
-    bot_id = _telegram_bot_id()
-    if not bot_id:
-        return _telegram_error("还没有配置 Telegram 机器人。", 503)
-    from urllib.parse import urlencode
+def auth_status(request):
+    return JsonResponse({"user": _user(request), "pro": is_pro(request)})
 
-    # 生产站一律按 https 域名拼 origin，避免反代识别成 http 导致 Telegram 拒授
-    host = request.get_host().split(":")[0]
-    origin = f"https://{host}"
-    auth_url = f"https://{host}/auth/telegram/callback"
-    oauth = "https://oauth.telegram.org/auth?" + urlencode(
-        {
-            "bot_id": bot_id,
-            "origin": origin,
-            "request_access": "write",
-            "return_to": auth_url,
-        }
-    )
-    return redirect(oauth)
+
+@ensure_csrf_cookie
+@require_GET
+def telegram_start(request):
+    """独立登录页：官方 Widget + onauth，避开 dialog/小窗/长 URL 签名问题。"""
+    bot = (settings.TELEGRAM_BOT_USERNAME or "").lstrip("@")
+    if not bot or not settings.TELEGRAM_BOT_TOKEN:
+        return _telegram_error("还没有配置 Telegram 机器人。", 503)
+    # 启动前核对 token 是否真属于这个 bot
+    token_hint = ""
+    try:
+        import json as _json
+        import urllib.request
+
+        with urllib.request.urlopen(
+            f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/getMe", timeout=6
+        ) as resp:
+            me = _json.loads(resp.read().decode())
+        if not me.get("ok"):
+            return _telegram_error("TELEGRAM_BOT_TOKEN 无效，getMe 失败。", 503)
+        real = (me.get("result") or {}).get("username") or ""
+        if real and real.lower() != bot.lower():
+            return _telegram_error(
+                f"Token 对应机器人是 @{real}，但配置的用户名是 @{bot}。请改成一致。",
+                503,
+            )
+        token_hint = f"@{real}" if real else f"@{bot}"
+    except Exception as exc:  # noqa: BLE001 — 展示给管理员排查
+        token_hint = f"@{bot}"
+        # 网络不通时仍展示 widget，但把提示写上
+        _ = exc
+
+    body = f"""<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Telegram 登录 · AlphaScope</title>
+<style>
+body{{margin:0;background:#f5f7fb;color:#0f172a;font:15px/1.6 system-ui,-apple-system,sans-serif}}
+main{{max-width:420px;margin:56px auto;padding:28px;background:#fff;border:1px solid #e2e8f0;border-radius:16px;box-shadow:0 10px 40px #0f172a14}}
+h1{{margin:0 0 8px;font-size:22px}}
+p{{color:#64748b;margin:0 0 14px}}
+#tg-widget{{margin:18px 0;min-height:44px}}
+#err{{display:none;margin-top:12px;padding:10px 12px;border-radius:10px;background:#fef2f2;color:#b91c1c;font-size:13px}}
+a{{color:#2563eb}}
+</style></head><body><main>
+<h1>Telegram 登录</h1>
+<p>点击下方官方按钮授权。机器人：{token_hint}</p>
+<div id="tg-widget"></div>
+<div id="err"></div>
+<p><a href="/">← 返回首页</a></p>
+</main>
+<script>
+function csrf(){{var m=document.cookie.match(/(?:^|; )csrftoken=([^;]+)/);return m?decodeURIComponent(m[1]):'';}}
+function showErr(msg){{var n=document.getElementById('err');n.style.display='block';n.textContent=msg;}}
+window.onTelegramAuth=function(user){{
+  showErr('正在登录…');
+  fetch('/auth/telegram/',{{
+    method:'POST',credentials:'same-origin',
+    headers:{{'Content-Type':'application/json','X-CSRFToken':csrf()}},
+    body:JSON.stringify(user||{{}})
+  }}).then(async function(res){{
+    var data={{}}; try{{data=await res.json();}}catch(e){{}}
+    if(!res.ok) throw new Error((data&&data.message)||('登录失败 '+res.status));
+    location.replace('/');
+  }}).catch(function(e){{ showErr(e.message||'登录失败'); }});
+}};
+(function(){{
+  var s=document.createElement('script');
+  s.async=true;
+  s.src='https://telegram.org/js/telegram-widget.js?22';
+  s.setAttribute('data-telegram-login',{bot!r});
+  s.setAttribute('data-size','large');
+  s.setAttribute('data-radius','8');
+  s.setAttribute('data-onauth','onTelegramAuth');
+  s.setAttribute('data-request-access','write');
+  document.getElementById('tg-widget').appendChild(s);
+}})();
+</script>
+</body></html>"""
+    return HttpResponse(body)
 
 
 @require_POST
