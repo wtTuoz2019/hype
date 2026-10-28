@@ -130,7 +130,39 @@ function render(){
   }
   if($('#sub-count')) $('#sub-count').textContent = subscriptions().length + ' 个';
   if($('#voice-mode-summary')) updateVoiceUI();
-  if($('#sync-status')) $('#sync-status').textContent = pro() ? 'Pro 会员 · 约 1 分钟后能看到新开单' : '免费版 · 新开单延迟约 30 分钟';
+  if($('#sync-status')){
+    var poll = live && live.poll_sec ? live.poll_sec : 3;
+    $('#sync-status').textContent = pro()
+      ? ('列表约每 ' + poll + ' 秒刷新 · 新开单约 1 分钟后可见')
+      : ('列表约每 ' + poll + ' 秒刷新 · 新开单约 30 分钟后可见');
+  }
+  if($('#sync-timer-label')){
+    $('#sync-timer-label').textContent = pro() ? '可见倒计时' : '免费延迟';
+  }
+}
+function delaySeconds(){
+  if(live && live.delay_sec) return Number(live.delay_sec) || 60;
+  return pro() ? 60 : 30 * 60;
+}
+function formatCountdown(sec){
+  sec = Math.max(0, Math.floor(sec));
+  if(sec >= 3600){
+    var h = Math.floor(sec / 3600);
+    var m = Math.floor((sec % 3600) / 60);
+    var s = sec % 60;
+    return h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  }
+  return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+}
+var countdownLeft = delaySeconds();
+function tickCountdown(){
+  var box = $('#sync-countdown');
+  if(!box) return;
+  var total = delaySeconds();
+  if(countdownLeft > total) countdownLeft = total;
+  box.textContent = formatCountdown(countdownLeft);
+  countdownLeft -= 1;
+  if(countdownLeft < 0) countdownLeft = total;
 }
 function selectFilter(name, el){
   filter = name;
@@ -260,11 +292,15 @@ function loadWalletDetail(id){
 }
 document.addEventListener('DOMContentLoaded', function(){
   shell();
+  countdownLeft = delaySeconds();
+  tickCountdown();
+  setInterval(tickCountdown, 1000);
   render();
   if($('#need-note') && location.search.indexOf('need=alert') >= 0) $('#need-note').classList.remove('hidden');
   if(live){
     booted = true;
-    setInterval(pull, 3000);
+    var pollMs = (live.poll_sec ? Number(live.poll_sec) : 3) * 1000;
+    setInterval(pull, pollMs);
     setInterval(pullWallets, 60000);
   }
 });

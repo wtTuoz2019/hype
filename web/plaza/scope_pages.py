@@ -13,6 +13,8 @@ from django.views.decorators.http import require_GET, require_POST
 
 from .models import Profile, TelegramAuth
 from .tape import (
+    FREE_DELAY,
+    PRO_DELAY,
     adopt_session,
     event_dict,
     is_pro,
@@ -58,8 +60,9 @@ def _user(request) -> dict | None:
 
 def boot(request) -> dict:
     rows = visible_events(request)
+    pro = is_pro(request)
     return {
-        "pro": is_pro(request),
+        "pro": pro,
         "subs": subscriptions(request),
         "user": _user(request),
         "bot": settings.TELEGRAM_BOT_USERNAME,
@@ -68,6 +71,8 @@ def boot(request) -> dict:
         "wallets": wallet_cards(),
         "events": [event_dict(row) for row in rows],
         "today": today_stats(request),
+        "delay_sec": PRO_DELAY if pro else FREE_DELAY,
+        "poll_sec": 3,
     }
 
 
