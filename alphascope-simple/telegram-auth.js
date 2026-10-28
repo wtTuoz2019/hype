@@ -1,4 +1,4 @@
-/* Telegram：一键进官方授权页。OKX：页内签名登录。 */
+/* Telegram：弹窗内官方 Widget（auth-url）。OKX：页内签名登录。 */
 (function(){
 var live = window.ALPHASCOPE || null;
 function esc(value){return String(value||'').replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];});}
@@ -38,8 +38,29 @@ function finishLogin(data){
   closeDlg();
   location.reload();
 }
-function goTelegramOauth(){
-  location.href = '/auth/telegram/start/';
+function showTelegramWidget(){
+  var bot = live && live.bot;
+  if(!bot){
+    panel('Telegram 登录','<p class="login-subtitle">服务端还没有配置机器人。</p><button class="login-back" onclick="openTelegramLogin()">← 返回</button>');
+    return;
+  }
+  var authUrl = (live && live.authUrl) || (location.origin + '/auth/telegram/callback');
+  panel(
+    'Telegram 登录',
+    '<p class="login-subtitle">点击下方官方按钮授权，完成后会自动回到本站。</p>'+
+    '<div id="tg-widget"></div>'+
+    '<p class="login-security">若按钮无反应，可 <a href="/auth/telegram/start/">改用整页登录</a></p>'+
+    '<button class="login-back" onclick="openTelegramLogin()">← 返回</button>'
+  );
+  var script=document.createElement('script');
+  script.async=true;
+  script.src='https://telegram.org/js/telegram-widget.js?22';
+  script.setAttribute('data-telegram-login', bot);
+  script.setAttribute('data-size','large');
+  script.setAttribute('data-radius','8');
+  script.setAttribute('data-auth-url', authUrl);
+  script.setAttribute('data-request-access','write');
+  document.getElementById('tg-widget').appendChild(script);
 }
 function okxProvider(){
   if(window.okxwallet && window.okxwallet.ethereum) return window.okxwallet.ethereum;
@@ -57,11 +78,13 @@ window.openTelegramLogin=function(){
   panel(
     '登录 AlphaScope',
     '<p class="login-subtitle">选择登录方式</p>'+
-    '<button class="login-choice" onclick="goTelegramOauth()"><span class="login-choice-icon">✈</span><span><b>Telegram</b><small>推荐 · 一键授权</small></span><span>›</span></button>'+
+    '<button class="login-choice" onclick="showTelegramWidget()"><span class="login-choice-icon">✈</span><span><b>Telegram</b><small>弹窗内一键授权</small></span><span>›</span></button>'+
     '<button class="login-choice" onclick="loginWithOkx()"><span class="login-choice-icon okx">◆</span><span><b>OKX 钱包</b><small>签名登录，不转账</small></span><span>›</span></button>'
   );
 };
-window.goTelegramOauth=goTelegramOauth;
+window.showTelegramWidget=showTelegramWidget;
+window.telegramWeb=showTelegramWidget;
+window.telegramClient=showTelegramWidget;
 window.loginWithOkx=async function(){
   var provider = okxProvider();
   if(!provider){
