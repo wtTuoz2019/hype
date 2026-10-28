@@ -16,12 +16,33 @@ from django.utils import timezone
 from .models import Profile, TelegramAuth
 from .tape import adopt_session
 
+# 只校验官方字段，忽略 CDN/反代塞进来的多余参数（否则 hash 必挂）
+_TG_FIELDS = ("id", "first_name", "last_name", "username", "photo_url", "auth_date")
+
+
+def _clean_payload(raw: Mapping) -> dict[str, str]:
+    data: dict[str, str] = {}
+    for key in _TG_FIELDS:
+        if key not in raw:
+            continue
+        value = raw.get(key)
+        if value is None:
+            continue
+        text = str(value)
+        if text == "":
+            continue
+        data[key] = text
+    digest = raw.get("hash")
+    if digest:
+        data["hash"] = str(digest)
+    return data
+
 
 def telegram_ok(query: Mapping, token: str | None = None) -> bool:
     token = settings.TELEGRAM_BOT_TOKEN if token is None else token
     if not token:
         return False
-    data = {str(key): "" if query.get(key) is None else str(query.get(key)) for key in query}
+    data = _clean_payload(query)
     received = data.pop("hash", "")
     if not received:
         return False
@@ -43,14 +64,14 @@ def complete_telegram_login(request, payload: Mapping) -> tuple[Profile | None, 
     """校验并完成 Telegram 登录。成功返回 (profile, "")，失败返回 (None, 原因)。"""
     if not settings.TELEGRAM_BOT_TOKEN:
         return None, "还没有配置 Telegram 机器人。"
-    data = {str(key): "" if payload.get(key) is None else str(payload.get(key)) for key in payload}
+    data = _clean_payload(payload)
     if not telegram_ok(data):
-        return None, "Telegram 登录校验没有通过。请关闭后重新点登录。"
+        return None, "Telegram 登录校验没有通过。请确认 BotFather 域名是 p.c7.pro，且 TELEGRAM_BOT_TOKEN 对应 HyPeLoginBot。"
     digest = data.get("hash") or ""
     if not digest:
         return None, "缺少 Telegram 签名。"
     if TelegramAuth.objects.filter(digest=digest).exists():
-        return None, "这条授权已经用过。请返回重新点一次 Telegram 登录。"
+        return None, "这条授权已经用过。请重新点一次 Telegram 登录。"
 
     telegram_id = int(data["id"])
     now = timezone.now()
@@ -107,5 +128,7 @@ def complete_telegram_login(request, payload: Mapping) -> tuple[Profile | None, 
         return None, "登录建档冲突，请再试一次。"
 
     login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+    request.session.save()
     adopt_session(request)
+    request.session.save()
     return profile, ""

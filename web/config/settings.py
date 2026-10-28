@@ -112,6 +112,8 @@ if os.environ.get("DJANGO_BEHIND_HTTPS") == "1":
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SESSION_COOKIE_SAMESITE = "Lax"
+# 允许 Telegram 授权小窗保持 window.opener，否则登完主页收不到会话
+SECURE_CROSS_ORIGIN_OPENER_POLICY = "same-origin-allow-popups"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 LOGIN_URL = "/login/"
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")

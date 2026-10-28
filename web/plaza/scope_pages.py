@@ -219,31 +219,45 @@ def _telegram_error(message: str, status: int = 403) -> HttpResponse:
     return HttpResponse(body, status=status, content_type="text/html; charset=utf-8")
 
 
+def _telegram_bridge(ok: bool, message: str = "") -> HttpResponse:
+    """授权小窗收尾：用 postMessage 通知原页面，避免 COOP 弄丢 opener 时主页不知情。"""
+    import json
+
+    payload = json.dumps({"type": "tg-login", "ok": bool(ok), "message": message or ""}, ensure_ascii=False)
+    title = "登录成功" if ok else "登录失败"
+    return HttpResponse(
+        f"""<!doctype html><meta charset="utf-8"><title>{title}</title>
+<script>
+(function () {{
+  var data = {payload};
+  try {{
+    if (window.opener && !window.opener.closed) {{
+      window.opener.postMessage(data, window.location.origin);
+    }}
+  }} catch (e) {{}}
+  try {{ window.close(); }} catch (e) {{}}
+  if (data.ok) {{
+    document.write('<p style="font:15px/1.6 sans-serif;margin:40px 20px">登录成功。可以关闭此窗口，回到原页面。</p>');
+  }} else {{
+    document.write('<p style="font:15px/1.6 sans-serif;margin:40px 20px;color:#b91c1c">' + (data.message || '登录失败') + '</p><p style="margin:0 20px"><a href="/">回首页</a></p>');
+  }}
+}})();
+</script>
+""",
+        content_type="text/html; charset=utf-8",
+        status=200 if ok else 403,
+    )
+
+
 @require_GET
 def telegram_callback(request):
     profile, err = complete_telegram_login(request, request.GET)
     if err:
-        status = 503 if "机器人" in err else 403
-        return _telegram_error(err, status)
-    # 授权小窗：刷新原页面并关闭自己；普通跳转则回首页
-    return HttpResponse(
-        """<!doctype html><meta charset="utf-8"><title>登录成功</title>
-<script>
-(function () {
-  try {
-    if (window.opener && !window.opener.closed) {
-      window.opener.location.href = "/";
-      window.close();
-      return;
-    }
-  } catch (e) {}
-  location.replace("/");
-})();
-</script>
-<p style="font:15px/1.6 sans-serif;margin:40px 20px">登录成功，正在返回… <a href="/">点这里回首页</a></p>
-""",
-        content_type="text/html; charset=utf-8",
-    )
+        return _telegram_bridge(False, err)
+    # 再确认会话已挂上前台会员
+    if front_profile(request) is None:
+        return _telegram_bridge(False, "授权过了，但会话没建上。请检查浏览器是否拦截了 Cookie。")
+    return _telegram_bridge(True, "")
 
 
 @require_POST

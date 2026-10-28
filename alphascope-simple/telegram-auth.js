@@ -1,4 +1,4 @@
-/* Telegram 官方登录（onauth 直传）+ OKX 钱包签名登录。 */
+/* Telegram 官方登录（小窗授权）+ OKX 钱包签名登录。 */
 (function(){
 var live = window.ALPHASCOPE || null;
 function esc(value){return String(value||'').replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];});}
@@ -35,28 +35,31 @@ function finishLogin(data){
   }
   refresh();
   closeDlg();
-  // 刷新整页，让会员态 / 延迟 / 焦点与会话对齐
   location.reload();
 }
-window.onTelegramAuth = function(user){
-  panel('Telegram 登录','<p class="login-subtitle">正在完成登录…</p>');
-  postJson('/auth/telegram/', user).then(finishLogin).catch(function(error){
-    panel(
-      'Telegram 登录失败',
-      '<p class="login-subtitle">'+esc((error && error.message) || '登录失败')+'</p>'+
-      '<button class="login-back" onclick="openTelegramLogin()">← 返回重试</button>'+
-      '<p class="login-security">请确认 BotFather 已把域名设为 p.c7.pro，且服务器 TELEGRAM_BOT_TOKEN 与机器人一致。</p>'
-    );
-  });
-};
+window.addEventListener('message', function(ev){
+  if(ev.origin !== location.origin) return;
+  var data = ev.data || {};
+  if(data.type !== 'tg-login') return;
+  if(data.ok){
+    closeDlg();
+    location.reload();
+    return;
+  }
+  panel(
+    'Telegram 登录失败',
+    '<p class="login-subtitle">'+esc(data.message || '登录失败')+'</p>'+
+    '<button class="login-primary" type="button" onclick="goTelegramOauth()">再试一次</button>'+
+    '<button class="login-back" onclick="openTelegramLogin()">← 返回</button>'
+  );
+});
 function goTelegramOauth(){
   if(!(live && (live.botId || live.bot))){
     panel('Telegram 登录','<p class="login-subtitle">服务端还没有配置机器人。设置环境变量 TELEGRAM_BOT_USERNAME 和 TELEGRAM_BOT_TOKEN 后再试。</p><button class="login-back" onclick="openTelegramLogin()">← 返回</button>');
     return;
   }
-  // 小窗授权：主页面保持打开，授权完小窗关闭并刷新主页
   panel('Telegram 登录','<p class="login-subtitle">请在弹出的窗口里确认授权。完成后会自动回到本页。</p><p class="login-security">如果没有弹出窗口，请允许本站弹窗后重试。</p><button class="login-back" onclick="openTelegramLogin()">← 返回</button>');
-  var popup = window.open('/auth/telegram/start/','tg_login','width=520,height=640,menubar=no,toolbar=no,status=no,noopener=no');
+  var popup = window.open('/auth/telegram/start/','tg_login','width=520,height=640,menubar=no,toolbar=no,status=no');
   if(!popup){
     panel(
       '需要允许弹窗',
@@ -64,14 +67,7 @@ function goTelegramOauth(){
       '<button class="login-primary" type="button" onclick="window.open(\'/auth/telegram/start/\',\'_blank\')">再次打开授权</button>'+
       '<button class="login-back" onclick="openTelegramLogin()">← 返回</button>'
     );
-    return;
   }
-  var timer = setInterval(function(){
-    if(!popup || popup.closed){
-      clearInterval(timer);
-      location.reload();
-    }
-  }, 900);
 }
 function okxProvider(){
   if(window.okxwallet && window.okxwallet.ethereum) return window.okxwallet.ethereum;
@@ -98,6 +94,7 @@ window.openTelegramLogin=function(){
 };
 window.telegramWeb=function(){goTelegramOauth();};
 window.telegramClient=function(){goTelegramOauth();};
+window.goTelegramOauth=goTelegramOauth;
 window.loginWithOkx=async function(){
   var provider = okxProvider();
   if(!provider){
