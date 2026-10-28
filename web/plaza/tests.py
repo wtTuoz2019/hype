@@ -602,3 +602,30 @@ class ScopePageTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(denied.status_code, 403)
+
+    def test_countdown_follows_real_signal_delay(self):
+        from plaza.tape import FREE_DELAY
+
+        leader = Leader.objects.create(name="倒计时", address="0x" + "cd" * 20, enabled=True)
+        now_ms = int(time.time() * 1000)
+        # 还有约 10 分钟才对免费用户可见
+        TradeSignal.objects.create(
+            leader=leader,
+            sig_id="soon",
+            time_ms=now_ms - (FREE_DELAY - 600) * 1000,
+            coin="BTC",
+            action="open",
+            side="long",
+            label="开多",
+            delta_szi="1",
+            px="1000",
+        )
+        feed = self.client.get("/api/tape/?events=0").json()
+        self.assertIsNotNone(feed["next_visible_at"])
+        left = feed["next_visible_at"] - int(time.time())
+        self.assertGreater(left, 500)
+        self.assertLess(left, 700)
+        # 延迟窗里没有信号时不应假装从头倒满 30 分钟
+        TradeSignal.objects.all().delete()
+        empty = self.client.get("/api/tape/?events=0").json()
+        self.assertIsNone(empty["next_visible_at"])

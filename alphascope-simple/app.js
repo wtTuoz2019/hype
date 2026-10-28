@@ -151,15 +151,26 @@ function formatCountdown(sec){
   }
   return String(Math.floor(sec / 60)).padStart(2, '0') + ':' + String(sec % 60).padStart(2, '0');
 }
-var countdownLeft = delaySeconds();
+function syncCountdownFrom(data){
+  if(!live || !data) return;
+  if('delay_sec' in data) live.delay_sec = Number(data.delay_sec) || live.delay_sec;
+  if('next_visible_at' in data) live.next_visible_at = data.next_visible_at;
+}
 function tickCountdown(){
   var box = $('#sync-countdown');
   if(!box) return;
-  var total = delaySeconds();
-  if(countdownLeft > total) countdownLeft = total;
-  box.textContent = formatCountdown(countdownLeft);
-  countdownLeft -= 1;
-  if(countdownLeft < 0) countdownLeft = total;
+  var at = live && live.next_visible_at != null ? Number(live.next_visible_at) : NaN;
+  if(!Number.isFinite(at) || at <= 0){
+    // 当前延迟窗里没有排队信号
+    box.textContent = '--:--';
+    box.title = '当前没有等待可见的新开单';
+    return;
+  }
+  var left = Math.max(0, Math.ceil(at - Date.now() / 1000));
+  box.textContent = formatCountdown(left);
+  box.title = left > 0
+    ? ('下一条开单约 ' + formatCountdown(left) + ' 后可见')
+    : '下一条开单即将可见';
 }
 function selectFilter(name, el){
   filter = name;
@@ -244,6 +255,7 @@ function applyTape(data){
     events = data.events;
   }
   if(data.today) live.today = data.today;
+  syncCountdownFrom(data);
   applyState(data);
   render();
   if(booted && pro()) fresh.forEach(alertFor);
@@ -289,7 +301,6 @@ function loadWalletDetail(id){
 }
 document.addEventListener('DOMContentLoaded', function(){
   shell();
-  countdownLeft = delaySeconds();
   tickCountdown();
   setInterval(tickCountdown, 1000);
   render();

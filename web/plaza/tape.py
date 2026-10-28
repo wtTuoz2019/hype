@@ -106,9 +106,30 @@ def adopt_session(request) -> None:
     request.session.modified = True
 
 
+def _delay_sec(request) -> int:
+    return PRO_DELAY if is_pro(request) else FREE_DELAY
+
+
 def _cutoff_ms(request) -> int:
-    delay = PRO_DELAY if is_pro(request) else FREE_DELAY
-    return int((timezone.now() - timedelta(seconds=delay)).timestamp() * 1000)
+    return int((timezone.now() - timedelta(seconds=_delay_sec(request))).timestamp() * 1000)
+
+
+def next_visible_at(request) -> int | None:
+    """下一条仍在延迟窗里的信号，何时会对当前身份可见（unix 秒）。没有排队则 None。"""
+    delay = _delay_sec(request)
+    now = timezone.now()
+    cutoff_ms = int((now - timedelta(seconds=delay)).timestamp() * 1000)
+    row = (
+        TradeSignal.objects.filter(leader__enabled=True, time_ms__gt=cutoff_ms)
+        .order_by("time_ms", "id")
+        .only("time_ms")
+        .first()
+    )
+    if row is None:
+        return None
+    visible = int(row.time_ms / 1000) + delay
+    # 已经到期的话前端显示 0，下一轮轮询就会进列表
+    return max(visible, int(now.timestamp()))
 
 
 def visible_events(request, *, after_id: int | None = None, limit: int = 80):

@@ -20,6 +20,7 @@ from .tape import (
     event_dict,
     front_profile,
     is_pro,
+    next_visible_at,
     set_pro,
     subscriptions,
     today_stats,
@@ -90,6 +91,7 @@ def boot(request) -> dict:
         "events": [event_dict(row) for row in rows],
         "today": today_stats(request),
         "delay_sec": PRO_DELAY if pro else FREE_DELAY,
+        "next_visible_at": next_visible_at(request),
         "poll_sec": 3,
     }
 
@@ -151,6 +153,8 @@ def tape_feed(request):
         "wallet_rev": rev,
         "incremental": False,
         "events": [],
+        "delay_sec": PRO_DELAY if is_pro(request) else FREE_DELAY,
+        "next_visible_at": next_visible_at(request),
     }
     if not skip_events:
         if after_id is not None:
