@@ -629,3 +629,51 @@ class ScopePageTests(TestCase):
         TradeSignal.objects.all().delete()
         empty = self.client.get("/api/tape/?events=0").json()
         self.assertIsNone(empty["next_visible_at"])
+
+    def test_today_focus_not_swamped_by_recent_adds(self):
+        leader = Leader.objects.create(name="焦点钱包", address="0x" + "ef" * 20, enabled=True)
+        now_ms = int(time.time() * 1000)
+        # 一笔更大的开多，时间稍早
+        TradeSignal.objects.create(
+            leader=leader,
+            sig_id="big-open",
+            time_ms=now_ms - 40 * 60 * 1000,
+            coin="BTC",
+            action="open",
+            side="long",
+            label="开多",
+            delta_szi="10",
+            px="1000",
+        )
+        # 最近 80 条全是小加空，模拟刷屏
+        for i in range(80):
+            TradeSignal.objects.create(
+                leader=leader,
+                sig_id=f"add-{i}",
+                time_ms=now_ms - 35 * 60 * 1000 + i,
+                coin="ETH",
+                action="add",
+                side="short",
+                label="加空",
+                delta_szi="0.1",
+                px="10",
+            )
+        feed = self.client.get("/api/tape/").json()
+        self.assertTrue(feed["today_focus"])
+        self.assertEqual(feed["today_focus"][0]["act"], "开多")
+        self.assertEqual(feed["today_focus"][0]["symbol"], "BTC")
+
+    @override_settings(TELEGRAM_BOT_TOKEN="123:ABC", TELEGRAM_BOT_USERNAME="AlphaScopeBot")
+    def test_telegram_login_reuses_existing_username(self):
+        User.objects.create_user(username="tg_99", password="unused-pass-99")
+        payload = {
+            "id": "99",
+            "first_name": "Bob",
+            "username": "bob",
+            "auth_date": str(int(time.time())),
+        }
+        signed = _telegram_query(payload, "123:ABC")
+        response = self.client.get("/auth/telegram/callback", signed)
+        self.assertEqual(response.status_code, 302)
+        home = self.client.get("/")
+        self.assertContains(home, "@bob")

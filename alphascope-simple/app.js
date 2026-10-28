@@ -71,19 +71,33 @@ async function toggleSub(id){
   }
   render(); updateVoiceUI(); renderLeaderboard();
 }
+function focusRows(){
+  if(live && live.today_focus && live.today_focus.length) return live.today_focus.slice();
+  // 兜底：快讯窗可能被加仓刷屏，尽量仍从本地事件里找开/加
+  return events.filter(function(row){
+    return ['开多','开空','加多','加空'].indexOf(row.act) >= 0 && row.amount;
+  }).slice().sort(function(a,b){ return b.amount - a.amount; }).slice(0, 3);
+}
+function walletFor(row){
+  return wallets.find(function(item){ return item.id === String(row.wallet); }) || {
+    id: String(row.wallet),
+    name: row.wallet_name || ('钱包 ' + row.wallet),
+    win: 0
+  };
+}
 function renderImportant(){
   var box = document.getElementById('biggest-open');
   var list = document.getElementById('biggest-list');
   if(!box) return;
-  var opens = events.filter(function(row){ return String(row.act).indexOf('开') === 0 && row.amount; }).slice().sort(function(a,b){ return b.amount - a.amount; });
+  var opens = focusRows();
   if(!opens.length){ box.innerHTML = '<p class="muted">今日暂无开仓</p>'; if(list) list.innerHTML = ''; return; }
   var top = opens[0];
-  var wallet = wallets.find(function(item){ return item.id === top.wallet; });
+  var wallet = walletFor(top);
   var subscribed = subscriptions().indexOf(wallet.id) >= 0;
-  box.innerHTML = '<div class="biggest-label">🏆 今日最大单笔开单资金</div><strong class="biggest-amount">' + formatAmount(top.amount) + '</strong><div class="biggest-coin"><span class="action ' + (String(top.act).includes('空') ? 'short' : 'long') + '">' + top.act + '</span> <b>' + top.symbol + ' 合约</b></div><div class="biggest-name">' + wallet.name + ' <span>· 胜率 ' + wallet.win + '%</span></div><div class="biggest-time">' + top.time + ' · 历史已平仓胜率</div><button class="btn outline important-sub" onclick="toggleSub(\'' + wallet.id + '\')">' + (subscribed ? '✓ 已订阅' : '＋ 订阅这个钱包') + '</button>';
+  box.innerHTML = '<div class="biggest-label">🏆 今日最大单笔开单资金</div><strong class="biggest-amount">' + formatAmount(top.amount) + '</strong><div class="biggest-coin"><span class="action ' + (String(top.act).includes('空') ? 'short' : 'long') + '">' + top.act + '</span> <b>' + top.symbol + ' 合约</b></div><div class="biggest-name">' + esc(wallet.name) + ' <span>· 胜率 ' + win(wallet) + '</span></div><div class="biggest-time">' + esc(top.time) + ' · 历史已平仓胜率</div><button class="btn outline important-sub" onclick="toggleSub(\'' + wallet.id + '\')">' + (subscribed ? '✓ 已订阅' : '＋ 订阅这个钱包') + '</button>';
   if(list) list.innerHTML = opens.slice(0,3).map(function(row, index){
-    var who = wallets.find(function(item){ return item.id === row.wallet; });
-    return '<div class="top-open-row"><span class="top-place">' + (index + 1) + '</span><div><b>' + row.symbol + ' ' + row.act + '</b><small>' + who.name + ' · ' + row.time + '</small></div><strong>' + formatAmount(row.amount) + '</strong></div>';
+    var who = walletFor(row);
+    return '<div class="top-open-row"><span class="top-place">' + (index + 1) + '</span><div><b>' + esc(row.symbol) + ' ' + esc(row.act) + '</b><small>' + esc(who.name) + ' · ' + esc(row.time) + '</small></div><strong>' + formatAmount(row.amount) + '</strong></div>';
   }).join('');
 }
 function renderDirectionOverview(){
@@ -255,6 +269,7 @@ function applyTape(data){
     events = data.events;
   }
   if(data.today) live.today = data.today;
+  if(data.today_focus) live.today_focus = data.today_focus;
   syncCountdownFrom(data);
   applyState(data);
   render();

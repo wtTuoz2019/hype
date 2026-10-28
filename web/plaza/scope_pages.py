@@ -23,6 +23,7 @@ from .tape import (
     next_visible_at,
     set_pro,
     subscriptions,
+    today_focus,
     today_stats,
     toggle_sub,
     visible_events,
@@ -90,6 +91,7 @@ def boot(request) -> dict:
         "wallets": wallet_cards(),
         "events": [event_dict(row) for row in rows],
         "today": today_stats(request),
+        "today_focus": today_focus(request),
         "delay_sec": PRO_DELAY if pro else FREE_DELAY,
         "next_visible_at": next_visible_at(request),
         "poll_sec": 3,
@@ -150,6 +152,7 @@ def tape_feed(request):
         "pro": is_pro(request),
         "subs": subscriptions(request),
         "today": today_stats(request),
+        "today_focus": today_focus(request),
         "wallet_rev": rev,
         "incremental": False,
         "events": [],
@@ -201,33 +204,32 @@ def subscribe(request):
     return JsonResponse({"pro": True, "subs": toggle_sub(request, code)})
 
 
+def _telegram_error(message: str, status: int = 403) -> HttpResponse:
+    body = (
+        "<!doctype html><meta charset=utf-8><title>Telegram 登录</title>"
+        f"<p style='font:15px/1.6 sans-serif;margin:48px 20px'>{message}</p>"
+        "<p style='font:14px sans-serif;margin:0 20px'><a href='/'>返回首页重试</a></p>"
+    )
+    return HttpResponse(body, status=status, content_type="text/html; charset=utf-8")
+
+
 @require_GET
 def telegram_callback(request):
+    from django.db import IntegrityError, transaction
     from django.utils import timezone
 
     if not settings.TELEGRAM_BOT_TOKEN:
-        return HttpResponse("还没有配置 Telegram 机器人。", status=503)
+        return _telegram_error("还没有配置 Telegram 机器人。", 503)
     if not telegram_ok(request.GET):
-        return HttpResponse("Telegram 登录校验没有通过。", status=403)
+        return _telegram_error("Telegram 登录校验没有通过。请关闭弹窗后重新点登录。")
     digest = request.GET.get("hash") or ""
+    if not digest:
+        return _telegram_error("缺少 Telegram 签名。")
     if TelegramAuth.objects.filter(digest=digest).exists():
-        return HttpResponse("这条 Telegram 登录已经用过。", status=403)
-    TelegramAuth.objects.create(digest=digest)
-    telegram_id = int(request.GET.get("id"))
-    profile = Profile.objects.filter(telegram_id=telegram_id).select_related("user").first()
-    now = timezone.now()
-    if profile is None:
-        user = User.objects.create_user(username=f"tg_{telegram_id}")
-        profile = Profile.objects.create(
-            user=user,
-            telegram_id=telegram_id,
-            telegram_first_login_at=now,
-        )
-    else:
-        user = profile.user
-        if profile.telegram_first_login_at is None:
-            profile.telegram_first_login_at = now
+        return _telegram_error("这条授权已经用过。请返回首页重新点一次 Telegram 登录。")
 
+    telegram_id = int(request.GET.get("id"))
+    now = timezone.now()
     first = (request.GET.get("first_name") or "").strip()[:80]
     last = (request.GET.get("last_name") or "").strip()[:80]
     username = (request.GET.get("username") or "").strip().lstrip("@")[:64]
@@ -235,35 +237,52 @@ def telegram_callback(request):
     auth_raw = request.GET.get("auth_date") or ""
     auth_date = int(auth_raw) if str(auth_raw).isdigit() else None
 
-    # 有值才覆盖，避免用户隐藏用户名/头像后把库里旧资料冲掉
-    if first:
-        profile.telegram_first_name = first
-    if last or first:
-        profile.telegram_last_name = last
-    display = f"{profile.telegram_first_name} {profile.telegram_last_name}".strip()
-    if display:
-        profile.telegram_name = display[:80]
-    if username:
-        profile.telegram_username = username
-    if photo:
-        profile.telegram_photo = photo
-    if auth_date:
-        profile.telegram_auth_date = auth_date
-    profile.telegram_last_login_at = now
-    profile.telegram_login_count = int(profile.telegram_login_count or 0) + 1
-    profile.save(
-        update_fields=[
-            "telegram_first_name",
-            "telegram_last_name",
-            "telegram_name",
-            "telegram_username",
-            "telegram_photo",
-            "telegram_auth_date",
-            "telegram_first_login_at",
-            "telegram_last_login_at",
-            "telegram_login_count",
-        ]
-    )
+    try:
+        with transaction.atomic():
+            profile = (
+                Profile.objects.select_related("user").filter(telegram_id=telegram_id).first()
+            )
+            if profile is None:
+                user = User.objects.filter(username=f"tg_{telegram_id}").first()
+                if user is None:
+                    user = User.objects.create_user(username=f"tg_{telegram_id}")
+                profile, created = Profile.objects.get_or_create(
+                    user=user,
+                    defaults={
+                        "telegram_id": telegram_id,
+                        "telegram_first_login_at": now,
+                    },
+                )
+                if not created and profile.telegram_id is None:
+                    profile.telegram_id = telegram_id
+                if profile.telegram_first_login_at is None:
+                    profile.telegram_first_login_at = now
+            else:
+                user = profile.user
+                if profile.telegram_first_login_at is None:
+                    profile.telegram_first_login_at = now
+
+            # 有值才覆盖，避免用户隐藏用户名/头像后把库里旧资料冲掉
+            if first:
+                profile.telegram_first_name = first
+            if last or first:
+                profile.telegram_last_name = last
+            display = f"{profile.telegram_first_name} {profile.telegram_last_name}".strip()
+            if display:
+                profile.telegram_name = display[:80]
+            if username:
+                profile.telegram_username = username
+            if photo:
+                profile.telegram_photo = photo
+            if auth_date:
+                profile.telegram_auth_date = auth_date
+            profile.telegram_last_login_at = now
+            profile.telegram_login_count = int(profile.telegram_login_count or 0) + 1
+            profile.save()
+            TelegramAuth.objects.create(digest=digest)
+    except IntegrityError:
+        return _telegram_error("登录建档冲突，请返回首页再试一次。", 409)
+
     login(request, user, backend="django.contrib.auth.backends.ModelBackend")
     adopt_session(request)
     return redirect("home")

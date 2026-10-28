@@ -166,6 +166,11 @@ def event_dict(row: TradeSignal) -> dict:
     }
 
 
+def _today_start_ms() -> int:
+    start = timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
+    return int(start.timestamp() * 1000)
+
+
 def today_stats(request) -> dict:
     cutoff = _cutoff_ms(request)
     # 按分钟桶缓存，避免每 3 秒扫当日全表
@@ -175,8 +180,7 @@ def today_stats(request) -> dict:
         hit = _TODAY_CACHE.get(key)
         if hit and now - hit[0] < _TODAY_TTL:
             return dict(hit[1])
-    start = timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
-    start_ms = int(start.timestamp() * 1000)
+    start_ms = _today_start_ms()
     labels = TradeSignal.objects.filter(
         leader__enabled=True,
         time_ms__gte=start_ms,
@@ -197,6 +201,29 @@ def today_stats(request) -> dict:
             oldest = min(_TODAY_CACHE, key=lambda item: _TODAY_CACHE[item][0])
             _TODAY_CACHE.pop(oldest, None)
     return dict(result)
+
+
+def today_focus(request, *, limit: int = 3) -> list[dict]:
+    """今日已可见的开/加仓里，按名义金额取 TOP。不依赖快讯窗口（避免被加仓刷屏淹没）。"""
+    cutoff = _cutoff_ms(request)
+    start_ms = _today_start_ms()
+    rows = list(
+        TradeSignal.objects.select_related("leader")
+        .filter(
+            leader__enabled=True,
+            time_ms__gte=start_ms,
+            time_ms__lte=cutoff,
+            label__in=("开多", "开空", "加多", "加空"),
+        )
+        .order_by("-time_ms", "-id")[:400]
+    )
+    rows.sort(key=_notional, reverse=True)
+    out = []
+    for row in rows[:limit]:
+        item = event_dict(row)
+        item["wallet_name"] = row.leader.name or row.leader.address
+        out.append(item)
+    return out
 
 
 def wallet_rev() -> str:
