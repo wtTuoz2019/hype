@@ -27,6 +27,7 @@ ALLOWED_HOSTS = [
 ]
 
 INSTALLED_APPS = [
+    "jazzmin",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -114,3 +115,66 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME", "")
 LOGIN_REDIRECT_URL = "/"
 LOGOUT_REDIRECT_URL = "/"
+
+JAZZMIN_SETTINGS = {
+    "site_title": "AlphaScope",
+    "site_header": "AlphaScope",
+    "site_brand": "AlphaScope",
+    "welcome_sign": "钱包跟踪管理后台",
+    "copyright": "AlphaScope",
+    "search_model": ["plaza.Leader", "auth.User"],
+    "topmenu_links": [
+        {"name": "打开前台", "url": "/", "new_window": True},
+        {"name": "跟踪钱包", "url": "admin:plaza_leader_changelist"},
+        {"name": "开单信号", "url": "admin:plaza_tradesignal_changelist"},
+    ],
+    "show_sidebar": True,
+    "navigation_expanded": True,
+    "hide_apps": [],
+    "hide_models": [],
+    "order_with_respect_to": [
+        "plaza",
+        "plaza.Leader",
+        "plaza.TradeSignal",
+        "plaza.LeaderSnapshot",
+        "plaza.AlertSub",
+        "plaza.Profile",
+        "plaza.Follow",
+        "plaza.ExchangeAccount",
+        "plaza.Commission",
+        "auth",
+    ],
+    "icons": {
+        "auth": "fas fa-users-cog",
+        "auth.user": "fas fa-user",
+        "auth.Group": "fas fa-users",
+        "plaza.Leader": "fas fa-wallet",
+        "plaza.TradeSignal": "fas fa-bolt",
+        "plaza.LeaderSnapshot": "fas fa-chart-line",
+        "plaza.Profile": "fas fa-id-card",
+        "plaza.Follow": "fas fa-link",
+        "plaza.ExchangeAccount": "fas fa-key",
+        "plaza.AlertSub": "fas fa-bell",
+        "plaza.Commission": "fas fa-coins",
+    },
+    "default_icon_parents": "fas fa-folder",
+    "default_icon_children": "fas fa-circle",
+    "related_modal_active": True,
+    "custom_css": None,
+    "custom_js": None,
+    "use_google_fonts_cdn": True,
+    "show_ui_builder": False,
+    "changeform_format": "horizontal_tabs",
+    "language_chooser": False,
+}
+
+JAZZMIN_UI_TWEAKS = {
+    "theme": "flatly",
+    "default_theme_mode": "light",
+    "navbar": "navbar-white navbar-light",
+    "sidebar": "sidebar-dark-primary",
+    "sidebar_nav_child_indent": True,
+    "sidebar_nav_compact_style": True,
+    "accent": "accent-primary",
+    "actions_sticky_top": True,
+}
