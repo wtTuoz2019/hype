@@ -535,6 +535,14 @@ class ScopePageTests(TestCase):
         self.assertEqual(self.client.get("/auth/telegram/callback", bad).status_code, 403)
 
     @override_settings(TELEGRAM_BOT_TOKEN="123:ABC", TELEGRAM_BOT_USERNAME="AlphaScopeBot")
+    def test_telegram_start_redirects_to_oauth(self):
+        response = self.client.get("/auth/telegram/start/")
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("oauth.telegram.org/auth", response["Location"])
+        self.assertIn("bot_id=123", response["Location"])
+        self.assertIn("return_to=", response["Location"])
+
+    @override_settings(TELEGRAM_BOT_TOKEN="123:ABC", TELEGRAM_BOT_USERNAME="AlphaScopeBot")
     def test_telegram_login_post_onauth(self):
         payload = {
             "id": "77",

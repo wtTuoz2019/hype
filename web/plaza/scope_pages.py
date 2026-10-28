@@ -78,6 +78,11 @@ def _user(request) -> dict | None:
     return {"label": label, "photo": profile.telegram_photo or ""}
 
 
+def _telegram_bot_id() -> str:
+    token = settings.TELEGRAM_BOT_TOKEN or ""
+    return token.split(":", 1)[0] if token else ""
+
+
 def boot(request) -> dict:
     rows = visible_events(request)
     pro = is_pro(request)
@@ -86,6 +91,7 @@ def boot(request) -> dict:
         "subs": subscriptions(request),
         "user": _user(request),
         "bot": settings.TELEGRAM_BOT_USERNAME,
+        "botId": _telegram_bot_id(),
         "authUrl": request.build_absolute_uri("/auth/telegram/callback"),
         "wallet_rev": wallet_rev(),
         "wallets": wallet_cards(),
@@ -230,6 +236,29 @@ def telegram_login(request):
         status = 503 if "机器人" in err else 403
         return JsonResponse({"message": err}, status=status)
     return JsonResponse({"ok": True, "user": _user(request), "pro": is_pro(request), "subs": subscriptions(request)})
+
+
+@require_GET
+def telegram_start(request):
+    """整页跳转 Telegram 官方授权，避免嵌在 dialog/iframe 里回调丢失。"""
+    bot_id = _telegram_bot_id()
+    if not bot_id:
+        return _telegram_error("还没有配置 Telegram 机器人。", 503)
+    from urllib.parse import urlencode
+
+    # 生产站一律按 https 域名拼 origin，避免反代识别成 http 导致 Telegram 拒授
+    host = request.get_host().split(":")[0]
+    origin = f"https://{host}"
+    auth_url = f"https://{host}/auth/telegram/callback"
+    oauth = "https://oauth.telegram.org/auth?" + urlencode(
+        {
+            "bot_id": bot_id,
+            "origin": origin,
+            "request_access": "write",
+            "return_to": auth_url,
+        }
+    )
+    return redirect(oauth)
 
 
 @require_POST

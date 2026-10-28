@@ -49,18 +49,23 @@ window.onTelegramAuth = function(user){
     );
   });
 };
+function goTelegramOauth(){
+  // 整页跳官方授权，再回调回本站；避开 dialog + iframe 弹窗回调丢失
+  location.href = '/auth/telegram/start/';
+}
 function widget(note){
   var bot = live && live.bot;
-  if(!bot){panel('Telegram 登录','<p class="login-subtitle">服务端还没有配置机器人。设置环境变量 TELEGRAM_BOT_USERNAME 和 TELEGRAM_BOT_TOKEN 后，这里会显示 Telegram 官方登录。</p><button class="login-back" onclick="openTelegramLogin()">← 返回</button>');return;}
-  panel('Telegram 登录','<p class="login-subtitle">'+note+'</p><div id="tg-widget"></div><p class="login-security">登录由 Telegram 签名，服务器会核对签名和时间，不会索取助记词或私钥。</p>');
-  var script=document.createElement('script');
-  script.async=true;
-  script.src='https://telegram.org/js/telegram-widget.js?22';
-  script.setAttribute('data-telegram-login', bot);
-  script.setAttribute('data-size','large');
-  script.setAttribute('data-onauth', 'onTelegramAuth');
-  script.setAttribute('data-request-access','write');
-  document.getElementById('tg-widget').appendChild(script);
+  if(!bot && !(live && live.botId)){
+    panel('Telegram 登录','<p class="login-subtitle">服务端还没有配置机器人。设置环境变量 TELEGRAM_BOT_USERNAME 和 TELEGRAM_BOT_TOKEN 后，这里会显示 Telegram 官方登录。</p><button class="login-back" onclick="openTelegramLogin()">← 返回</button>');
+    return;
+  }
+  panel(
+    'Telegram 登录',
+    '<p class="login-subtitle">'+note+'</p>'+
+    '<button class="login-primary" type="button" onclick="goTelegramOauth()">打开 Telegram 授权</button>'+
+    '<p class="login-security">将跳转到 Telegram 官方页面确认。回来后若仍未登录，请检查 BotFather 域名是否为 p.c7.pro。</p>'+
+    '<button class="login-back" onclick="openTelegramLogin()">← 返回</button>'
+  );
 }
 function okxProvider(){
   if(window.okxwallet && window.okxwallet.ethereum) return window.okxwallet.ethereum;
@@ -85,8 +90,8 @@ window.openTelegramLogin=function(){
     '<p class="login-security">OKX 登录只需签名一次证明地址归属，不会转账，也不会索取助记词。</p>'
   );
 };
-window.telegramWeb=function(){widget('使用 Telegram 官方组件，在浏览器里确认授权。');};
-window.telegramClient=function(){widget('使用 Telegram 官方组件。若已安装客户端，确认按钮会打开手机或电脑上的 Telegram。');};
+window.telegramWeb=function(){goTelegramOauth();};
+window.telegramClient=function(){goTelegramOauth();};
 window.loginWithOkx=async function(){
   var provider = okxProvider();
   if(!provider){
