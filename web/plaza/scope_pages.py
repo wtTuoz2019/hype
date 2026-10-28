@@ -179,6 +179,8 @@ def subscribe(request):
 
 @require_GET
 def telegram_callback(request):
+    from django.utils import timezone
+
     if not settings.TELEGRAM_BOT_TOKEN:
         return HttpResponse("还没有配置 Telegram 机器人。", status=503)
     if not telegram_ok(request.GET):
@@ -189,18 +191,55 @@ def telegram_callback(request):
     TelegramAuth.objects.create(digest=digest)
     telegram_id = int(request.GET.get("id"))
     profile = Profile.objects.filter(telegram_id=telegram_id).select_related("user").first()
+    now = timezone.now()
     if profile is None:
         user = User.objects.create_user(username=f"tg_{telegram_id}")
-        profile = Profile.objects.create(user=user, telegram_id=telegram_id)
+        profile = Profile.objects.create(
+            user=user,
+            telegram_id=telegram_id,
+            telegram_first_login_at=now,
+        )
     else:
         user = profile.user
-    profile.telegram_name = (request.GET.get("first_name") or "")[:80]
-    last = (request.GET.get("last_name") or "").strip()
-    if last:
-        profile.telegram_name = f"{profile.telegram_name} {last}".strip()[:80]
-    profile.telegram_username = (request.GET.get("username") or "")[:64]
-    profile.telegram_photo = (request.GET.get("photo_url") or "")[:300]
-    profile.save(update_fields=["telegram_name", "telegram_username", "telegram_photo"])
+        if profile.telegram_first_login_at is None:
+            profile.telegram_first_login_at = now
+
+    first = (request.GET.get("first_name") or "").strip()[:80]
+    last = (request.GET.get("last_name") or "").strip()[:80]
+    username = (request.GET.get("username") or "").strip().lstrip("@")[:64]
+    photo = (request.GET.get("photo_url") or "").strip()[:300]
+    auth_raw = request.GET.get("auth_date") or ""
+    auth_date = int(auth_raw) if str(auth_raw).isdigit() else None
+
+    # 有值才覆盖，避免用户隐藏用户名/头像后把库里旧资料冲掉
+    if first:
+        profile.telegram_first_name = first
+    if last or first:
+        profile.telegram_last_name = last
+    display = f"{profile.telegram_first_name} {profile.telegram_last_name}".strip()
+    if display:
+        profile.telegram_name = display[:80]
+    if username:
+        profile.telegram_username = username
+    if photo:
+        profile.telegram_photo = photo
+    if auth_date:
+        profile.telegram_auth_date = auth_date
+    profile.telegram_last_login_at = now
+    profile.telegram_login_count = int(profile.telegram_login_count or 0) + 1
+    profile.save(
+        update_fields=[
+            "telegram_first_name",
+            "telegram_last_name",
+            "telegram_name",
+            "telegram_username",
+            "telegram_photo",
+            "telegram_auth_date",
+            "telegram_first_login_at",
+            "telegram_last_login_at",
+            "telegram_login_count",
+        ]
+    )
     login(request, user, backend="django.contrib.auth.backends.ModelBackend")
     adopt_session(request)
     return redirect("home")

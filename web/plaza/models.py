@@ -26,16 +26,32 @@ class Profile(models.Model):
     )
     is_pro = models.BooleanField("Pro 会员", default=False)
     telegram_id = models.BigIntegerField("Telegram ID", null=True, blank=True, unique=True)
-    telegram_name = models.CharField("Telegram 昵称", max_length=80, blank=True)
-    telegram_username = models.CharField("Telegram 用户名", max_length=64, blank=True)
+    telegram_name = models.CharField("显示名", max_length=80, blank=True, help_text="名+姓，方便辨认")
+    telegram_first_name = models.CharField("名字", max_length=80, blank=True)
+    telegram_last_name = models.CharField("姓氏", max_length=80, blank=True)
+    telegram_username = models.CharField("Telegram 用户名", max_length=64, blank=True, help_text="不带 @，可用来拉群私信")
     telegram_photo = models.URLField("头像", max_length=300, blank=True)
+    telegram_auth_date = models.BigIntegerField("最近授权时间戳", null=True, blank=True)
+    telegram_first_login_at = models.DateTimeField("首次登录", null=True, blank=True)
+    telegram_last_login_at = models.DateTimeField("最近登录", null=True, blank=True)
+    telegram_login_count = models.PositiveIntegerField("登录次数", default=0)
 
     class Meta:
-        verbose_name = "用户资料"
-        verbose_name_plural = "用户资料"
+        verbose_name = "前台会员"
+        verbose_name_plural = "前台会员"
 
     def __str__(self) -> str:
+        if self.telegram_username:
+            return f"@{self.telegram_username}"
+        if self.telegram_name:
+            return self.telegram_name
         return self.user.get_username()
+
+    @property
+    def telegram_link(self) -> str:
+        if self.telegram_username:
+            return f"https://t.me/{self.telegram_username}"
+        return ""
 
 
 class Leader(models.Model):
