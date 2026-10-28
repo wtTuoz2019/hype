@@ -4,7 +4,7 @@ from django.apps import AppConfig
 class PlazaConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "plaza"
-    verbose_name = "跟单广场"
+    verbose_name = "钱包跟踪"
 
     def ready(self) -> None:
         import os
