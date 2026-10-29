@@ -10,7 +10,12 @@ var wallets = live && live.wallets ? live.wallets : fallbackWallets;
 var events = live && live.events ? live.events : fallbackEvents.map(function(row, index){return {id:index,time:row[0],symbol:row[1],act:row[2],wallet:row[3],amount:row[4]};});
 var filter = '全部';
 var seen = {};
-events.forEach(function(row){ seen[row.id] = true; });
+var spokenAlerts = {};
+events.forEach(function(row){
+  seen[row.id] = true;
+  // 页面已有的快讯一律视为过期，开启语音后不补播
+  if(row && row.id != null) spokenAlerts[String(row.id)] = true;
+});
 var booted = false;
 var $ = function(sel){ return document.querySelector(sel); };
 function esc(value){ return String(value || '').replace(/[&<>"']/g, function(ch){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]; }); }
@@ -198,9 +203,16 @@ function selectFilter(name, el){
 function voiceMode(){ return localStorage.getItem('as_voice_mode') === 'subs' ? 'subs' : 'all'; }
 function setVoiceMode(mode){ localStorage.setItem('as_voice_mode', mode === 'subs' ? 'subs' : 'all'); updateVoiceUI(); }
 function saveVoiceEnabled(){
-  localStorage.setItem('as_voice_on', $('#voice-on') && $('#voice-on').checked ? '1' : '0');
-  if($('#voice-on') && $('#voice-on').checked) unlockVoice();
-  else stopVoiceAudio();
+  var on = !!($('#voice-on') && $('#voice-on').checked);
+  localStorage.setItem('as_voice_on', on ? '1' : '0');
+  if(on){
+    unlockVoice();
+    // 刚打开：当前列表里的旧快讯全部标记已处理，只播之后新进来的
+    events.forEach(function(row){ if(row && row.id != null) spokenAlerts[String(row.id)] = true; });
+    clearVoiceQueue(true);
+  } else {
+    clearVoiceQueue(true);
+  }
 }
 function updateVoiceUI(){
   if($('#voice-scope')) $('#voice-scope').value = voiceMode();
@@ -209,10 +221,11 @@ function updateVoiceUI(){
 }
 function feedback(msg){ if($('#notify')){ $('#notify').textContent = msg; $('#notify').classList.remove('hidden'); } }
 var voiceUnlocked = false;
-var spokenAlerts = {};
 var speakToken = 0;
 var voiceAudio = null;
 var voiceCtx = null;
+var voiceQueue = [];
+var voicePlaying = false;
 function voiceEnabled(){
   var box = $('#voice-on');
   // Pro 区未渲染时，仍允许按本地开关意图播报（默认开）
@@ -238,14 +251,23 @@ function unlockVoice(){
 }
 function stopVoiceAudio(){
   if(!voiceAudio) return;
+  try{ voiceAudio.onended = null; voiceAudio.onerror = null; voiceAudio.onplay = null; }catch(e){}
   try{ voiceAudio.pause(); }catch(e){}
   try{ voiceAudio.removeAttribute('src'); voiceAudio.load(); }catch(e){}
   voiceAudio = null;
+}
+function clearVoiceQueue(stopCurrent){
+  voiceQueue = [];
+  voicePlaying = false;
+  speakToken += 1;
+  if(stopCurrent) stopVoiceAudio();
+  try{ if('speechSynthesis' in window) speechSynthesis.cancel(); }catch(e){}
 }
 function speakBrowserFallback(text, opts){
   opts = opts || {};
   if(!('speechSynthesis' in window)){
     if(opts.onFail) opts.onFail('no-api');
+    if(opts.onEnd) opts.onEnd();
     return;
   }
   try{
@@ -255,10 +277,15 @@ function speakBrowserFallback(text, opts){
     utter.lang = 'zh-CN';
     utter.volume = 1;
     utter.onstart = function(){ if(opts.onStart) opts.onStart(); };
-    utter.onerror = function(ev){ if(opts.onFail) opts.onFail((ev && ev.error) || 'error'); };
+    utter.onend = function(){ if(opts.onEnd) opts.onEnd(); };
+    utter.onerror = function(ev){
+      if(opts.onFail) opts.onFail((ev && ev.error) || 'error');
+      if(opts.onEnd) opts.onEnd();
+    };
     speechSynthesis.speak(utter);
   }catch(e){
     if(opts.onFail) opts.onFail(String(e && e.message || e));
+    if(opts.onEnd) opts.onEnd();
   }
 }
 function speakNow(text, opts){
@@ -269,7 +296,11 @@ function speakNow(text, opts){
   }
   var token = ++speakToken;
   var raw = String(text || '').trim();
-  if(!raw){ if(opts.onFail) opts.onFail('empty'); return; }
+  if(!raw){
+    if(opts.onFail) opts.onFail('empty');
+    if(opts.onEnd) opts.onEnd();
+    return;
+  }
   unlockVoice();
   stopVoiceAudio();
   var url = '/api/tts/?q=' + encodeURIComponent(raw.slice(0, 80));
@@ -284,15 +315,27 @@ function speakNow(text, opts){
       return res.blob();
     })
     .then(function(blob){
-      if(token !== speakToken || !blob) return;
+      if(token !== speakToken) return;
+      if(!blob){ if(opts.onEnd) opts.onEnd(); return; }
       var objectUrl = URL.createObjectURL(blob);
       var audio = new Audio();
       voiceAudio = audio;
       audio.src = objectUrl;
-      audio.onended = function(){ try{ URL.revokeObjectURL(objectUrl); }catch(e){} };
+      var finished = false;
+      var finish = function(){
+        if(finished) return;
+        finished = true;
+        try{ URL.revokeObjectURL(objectUrl); }catch(e){}
+        if(opts.onEnd) opts.onEnd();
+      };
+      audio.onended = finish;
       audio.onerror = function(){
         try{ URL.revokeObjectURL(objectUrl); }catch(e){}
-        speakBrowserFallback(raw, opts);
+        speakBrowserFallback(raw, {
+          onStart: opts.onStart,
+          onFail: opts.onFail,
+          onEnd: finish
+        });
       };
       audio.onplay = function(){ if(opts.onStart) opts.onStart(); };
       var played = audio.play();
@@ -300,6 +343,7 @@ function speakNow(text, opts){
         played.catch(function(){
           feedback('无法出声：请点地址栏右侧喇叭，取消「静音此网站」，再点试听');
           if(opts.onFail) opts.onFail('play-blocked');
+          finish();
         });
       }
     })
@@ -308,30 +352,53 @@ function speakNow(text, opts){
       speakBrowserFallback(raw, {
         onStart: opts.onStart,
         onFail: function(reason){
-          feedback('试听失败：' + (err && err.message ? err.message : reason) + '。也可检查网站是否被静音');
+          feedback('播报失败：' + (err && err.message ? err.message : reason));
           if(opts.onFail) opts.onFail(reason);
-        }
+        },
+        onEnd: opts.onEnd
       });
     });
 }
-function speak(msg, force){
-  // force=true：试听，不依赖「语音开启」开关
-  if(!force && !voiceEnabled()) return;
-  speakNow(msg);
+function pumpVoiceQueue(){
+  if(voicePlaying) return;
+  if(!pro() || !voiceEnabled()){
+    voiceQueue = [];
+    return;
+  }
+  var next = voiceQueue.shift();
+  if(!next) return;
+  voicePlaying = true;
+  feedback('🔔 ' + next.msg);
+  if(next.notify && 'Notification' in window && Notification.permission === 'granted'){
+    new Notification('聪明钱包开单提醒', {body: next.msg});
+  }
+  speakNow(next.msg, {
+    onEnd: function(){
+      voicePlaying = false;
+      pumpVoiceQueue();
+    }
+  });
 }
-function alertFor(row){
-  if(!pro()) return;
-  if(!row || !row.act) return;
-  var key = String(row.id || '') || (String(row.wallet) + '|' + String(row.symbol) + '|' + String(row.act) + '|' + String(row.time));
-  if(spokenAlerts[key]) return; // 同一条只播一次
-  spokenAlerts[key] = true;
-  var wallet = walletFor(row);
-  var matches = voiceMode() === 'all' || subscriptions().indexOf(String(wallet.id)) >= 0;
-  if(!matches){ feedback('已收到 ' + wallet.name + ' 的新开单；按“仅订阅钱包”模式，本次不播报。'); return; }
-  var msg = wallet.name + '，' + row.symbol + ' 合约' + row.act;
-  feedback('🔔 ' + msg);
-  speak(msg);
-  if('Notification' in window && Notification.permission === 'granted') new Notification('聪明钱包开单提醒', {body:msg});
+function queueFreshAlerts(rows){
+  if(!rows || !rows.length) return;
+  // 按快讯先后（id 升序）入队；已见过的不重复；语音关着也标记，避免之后补播旧的
+  var ordered = rows.slice().sort(function(a, b){ return Number(a.id) - Number(b.id); });
+  ordered.forEach(function(row){
+    if(!row || !row.act || row.id == null) return;
+    var key = String(row.id);
+    if(spokenAlerts[key]) return;
+    spokenAlerts[key] = true;
+    if(!pro() || !voiceEnabled()) return;
+    var wallet = walletFor(row);
+    var matches = voiceMode() === 'all' || subscriptions().indexOf(String(wallet.id)) >= 0;
+    if(!matches) return;
+    voiceQueue.push({
+      key: key,
+      msg: wallet.name + '，' + row.symbol + ' 合约' + row.act,
+      notify: true
+    });
+  });
+  pumpVoiceQueue();
 }
 function testVoice(){
   if(!pro()){ location.href = '/pricing/?need=alert'; return; }
@@ -348,9 +415,13 @@ function testVoice(){
   var line = wallet.name + '，BTC 合约开多';
   feedback('🔊 试听中 · ' + line);
   unlockVoice(); // 必须在点击同步栈里解锁
+  // 试听插队：停当前这条，播完后继续队列里剩下的新快讯
+  speakToken += 1;
+  stopVoiceAudio();
+  voicePlaying = true;
   speakNow('语音测试：' + line, {
     onStart: function(){ feedback('🔊 正在播报 · ' + line); },
-    onFail: function(){}
+    onEnd: function(){ voicePlaying = false; pumpVoiceQueue(); }
   });
 }
 async function permission(){
@@ -380,7 +451,8 @@ function applyTape(data){
   syncCountdownFrom(data);
   applyState(data);
   render();
-  if(booted && pro()) fresh.forEach(alertFor);
+  // 仅播报本轮新进来的快讯；按时间顺序排队，不补播旧的
+  if(booted) queueFreshAlerts(fresh);
   booted = true;
   if(data.wallet_rev && data.wallet_rev !== walletRev){
     walletRev = data.wallet_rev;
