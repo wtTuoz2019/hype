@@ -297,116 +297,58 @@ def _when_text(row: dict) -> str:
         return "—"
 
 
+def _fmt_sz(value: float | str | None) -> str:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "—"
+    if abs(number) < 1e-12:
+        return "—"
+    text = f"{abs(number):.8f}".rstrip("0").rstrip(".")
+    return text or "—"
+
+
+def _fmt_value(value: float | None) -> str:
+    if value is None:
+        return "—"
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "—"
+    return f"${abs(number):,.2f}"
+
+
 def _trade_row(
-    coin: str, side: str, px: str, pnl: float | None, when: str = "—", lev: str = "—"
+    coin: str,
+    side: str,
+    px: str,
+    pnl: float | None,
+    when: str = "—",
+    lev: str = "—",
+    *,
+    sz: str = "—",
+    mark: str = "—",
+    value: str = "—",
+    pnl_pct: str = "",
 ) -> dict:
     if pnl is None:
         pnl_text, up = "—", True
     else:
         pnl_text, up = _money(pnl), pnl >= 0
+        if pnl_pct:
+            pnl_text = f"{pnl_text} ({pnl_pct})"
     return {
         "coin": coin,
         "side": side,
         "lev": lev or "—",
+        "sz": sz or "—",
         "px": px or "—",
+        "mark": mark or "—",
+        "value": value or "—",
         "pnl": pnl_text,
         "up": up,
         "when": when or "—",
     }
-
-
-_CLOSE_LABELS = ("平多", "平空", "减多", "减空", "翻多", "翻空")
-
-
-def _when_from_ms(when_ms: int) -> str:
-    if when_ms <= 0:
-        return "—"
-    try:
-        return datetime.fromtimestamp(when_ms / 1000, tz=timezone.get_current_timezone()).strftime(
-            "%m-%d %H:%M:%S"
-        )
-    except (TypeError, ValueError, OSError):
-        return "—"
-
-
-def _history_from_signals(leader: Leader, *, limit: int = 40) -> list[dict]:
-    """快讯 WebSocket 已入库的平/减/翻，接近实时。"""
-    rows = []
-    qs = TradeSignal.objects.filter(leader=leader, label__in=_CLOSE_LABELS).order_by("-time_ms", "-id")[:limit]
-    for sig in qs:
-        rows.append(
-            _trade_row(
-                str(sig.coin or ""),
-                str(sig.label or "—"),
-                str(sig.px or "—"),
-                None,
-                _when_from_ms(int(sig.time_ms or 0)),
-            )
-        )
-    return rows
-
-
-def _positions_from_signals(leader: Leader, *, scan: int = 300) -> list[dict]:
-    """按币种取最新一条信号的 szi，还原当前是否仍持仓。"""
-    seen: set[str] = set()
-    rows: list[dict] = []
-    for sig in TradeSignal.objects.filter(leader=leader).order_by("-time_ms", "-id")[:scan]:
-        coin = str(sig.coin or "")
-        if not coin or coin in seen:
-            continue
-        seen.add(coin)
-        try:
-            szi = float(sig.szi or 0)
-        except (TypeError, ValueError):
-            continue
-        if abs(szi) < 1e-12:
-            continue
-        rows.append(
-            _trade_row(
-                coin,
-                "开多" if szi >= 0 else "开空",
-                str(sig.px or "—"),
-                None,
-                _when_from_ms(int(sig.time_ms or 0)),
-            )
-        )
-    return rows
-
-
-def _merge_history(signal_rows: list[dict], snap_rows: list[dict], *, limit: int = 40) -> list[dict]:
-    keys = {(row["coin"], row["when"]) for row in signal_rows}
-    merged = list(signal_rows)
-    for row in snap_rows:
-        key = (row["coin"], row["when"])
-        if key in keys:
-            continue
-        keys.add(key)
-        merged.append(row)
-        if len(merged) >= limit:
-            break
-    return merged[:limit]
-
-
-def _merge_positions(signal_rows: list[dict], snap_rows: list[dict]) -> list[dict]:
-    """信号决定还持有哪些币；快照有同币种时带上浮动盈亏/开仓价。"""
-    if not signal_rows:
-        return snap_rows
-    by_coin = {row["coin"]: row for row in snap_rows}
-    out = []
-    for row in signal_rows:
-        hit = by_coin.get(row["coin"])
-        if hit:
-            out.append(
-                {
-                    **row,
-                    "px": hit["px"] if hit.get("px") not in ("", "—") else row["px"],
-                    "pnl": hit["pnl"],
-                    "up": hit["up"],
-                }
-            )
-        else:
-            out.append(row)
-    return out
 
 
 def _card(leader: Leader, *, detail: bool = False) -> dict:
@@ -426,12 +368,15 @@ def _card(leader: Leader, *, detail: bool = False) -> dict:
     long_notional = short_notional = 0.0
     for row in stats.get("positions") or []:
         size = _float(row.get("szi"))
-        entry = _float(row.get("entry"))
-        notional = abs(size) * entry
+        value = _float(row.get("value"))
+        if value <= 0:
+            value = abs(size) * _float(row.get("entry"))
         if size >= 0:
-            long_notional += notional
+            long_notional += value
         else:
-            short_notional += notional
+            short_notional += value
+        roe = _float(row.get("roe"))
+        pnl_pct = f"{roe * 100:+.2f}%" if abs(roe) > 1e-12 else ""
         positions.append(
             _trade_row(
                 str(row.get("coin") or ""),
@@ -440,8 +385,13 @@ def _card(leader: Leader, *, detail: bool = False) -> dict:
                 _float(row.get("upnl")),
                 _when_text(row),
                 str(row.get("lev") or "—"),
+                sz=_fmt_sz(row.get("sz") if row.get("sz") is not None else abs(size)),
+                mark=str(row.get("mark") or "—"),
+                value=_fmt_value(value),
+                pnl_pct=pnl_pct,
             )
         )
+    # 历史平仓只信链上 userFills，不用本地信号反推（避免和 Hyperbot Completed 对不上）
     history = []
     for row in stats.get("closes") or []:
         history.append(
@@ -451,12 +401,9 @@ def _card(leader: Leader, *, detail: bool = False) -> dict:
                 str(row.get("px") or ""),
                 _float(row.get("pnl")),
                 _when_text(row),
+                sz=_fmt_sz(row.get("sz")),
             )
         )
-    if detail:
-        # 平仓记录可用本地快讯补新；当前持仓必须用链上 clearinghouse，不能用信号反推
-        signal_history = _history_from_signals(leader)
-        history = _merge_history(signal_history, history)
     gross = long_notional + short_notional
     long_pct = (long_notional / gross * 100) if gross else 0.0
     if gross <= 0:
@@ -538,14 +485,14 @@ def wallet_detail(leader_id: str | int) -> dict | None:
     leader = Leader.objects.filter(pk=pk, enabled=True).select_related("snapshot").first()
     if leader is None:
         return None
-    # 持仓以链上为准：超过约 45 秒就同步全量刷新，避免用旧快照或信号反推出错。
+    # 持仓/平仓以链上为准：超过约 20 秒同步全量刷新，尽量贴近 Hyperbot。
     snap = None
     try:
         snap = leader.snapshot
     except Exception:  # noqa: BLE001
         snap = None
-    stale = snap is None or (timezone.now() - snap.fetched_at).total_seconds() >= 45
-    if stale:
+    stale = snap is None or (timezone.now() - snap.fetched_at).total_seconds() >= 20
+    if stale or not getattr(snap, "full", False):
         try:
             from plaza.services import refresh_leader
 

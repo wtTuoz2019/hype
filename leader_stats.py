@@ -192,32 +192,43 @@ def _lev_text(leverage: object) -> str:
     return f"{mode} {value}x".strip()
 
 
+def _num(value, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _positions(address: str) -> list[dict]:
     rows: list[dict] = []
     for name, state in clearinghouses(address):
         for item in state.get("assetPositions") or []:
             pos = (item or {}).get("position") or {}
-            try:
-                size = float(pos.get("szi") or 0)
-            except (TypeError, ValueError):
-                continue
+            size = _num(pos.get("szi"))
             if abs(size) <= 1e-12:
                 continue
-            try:
-                upnl = float(pos.get("unrealizedPnl") or 0)
-            except (TypeError, ValueError):
-                upnl = 0.0
+            upnl = _num(pos.get("unrealizedPnl"))
+            value = _num(pos.get("positionValue"))
+            if abs(value) <= 1e-12:
+                entry = _num(pos.get("entryPx"))
+                value = abs(size) * entry
+            mark = abs(value / size) if abs(size) > 1e-12 else 0.0
+            roe = _num(pos.get("returnOnEquity"))
             rows.append(
                 {
                     "coin": str(pos.get("coin") or ""),
                     "szi": size,
+                    "sz": abs(size),
                     "entry": str(pos.get("entryPx") or ""),
+                    "mark": f"{mark:.6f}".rstrip("0").rstrip(".") if mark else "",
+                    "value": abs(value),
                     "upnl": upnl,
+                    "roe": roe,
                     "lev": _lev_text(pos.get("leverage")),
                     "dex": name or "main",
                 }
             )
-    rows.sort(key=lambda row: abs(row["upnl"]), reverse=True)
+    rows.sort(key=lambda row: abs(float(row.get("value") or 0)), reverse=True)
     return rows
 
 
