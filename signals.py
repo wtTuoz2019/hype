@@ -27,12 +27,13 @@ import certifi
 import websocket
 
 from wallet_store import STORE_PATH, load_wallets
-from watch_wallet import PING_SEC, WS_URL, fmt_time, log, short_addr
+from watch_wallet import PING_SEC, WS_URL, fmt_time, log, post_info, short_addr
 
 ROOT = Path(__file__).resolve().parent
 SIGNAL_PATH = ROOT / "data" / "signals.jsonl"
 DEBOUNCE_SEC = 3.0
 POLL_SEC = 15.0
+CATCHUP_SEC = max(60.0, float(os.environ.get("HYPE_CATCHUP_SEC", "120")))
 EQUITY_SEC = 120.0
 EQUITY_BATCH = 20
 WS_SHARD_SIZE = max(20, int(os.environ.get("HYPE_WS_SHARD", "60")))
@@ -357,6 +358,65 @@ class SignalHub:
                 self.seen_tids.popitem(last=False)
         return True
 
+    def _last_signal_ms(self, address: str) -> int:
+        """库里该地址最新一条信号时间；用于断线补漏。"""
+        try:
+            from plaza.models import Leader, TradeSignal
+
+            leader = Leader.objects.filter(address=address).only("id").first()
+            if leader is None:
+                return 0
+            last = (
+                TradeSignal.objects.filter(leader=leader)
+                .order_by("-time_ms")
+                .values_list("time_ms", flat=True)
+                .first()
+            )
+            return int(last or 0)
+        except Exception:
+            return 0
+
+    def catchup_address(self, address: str, hint_fills: list | None = None) -> int:
+        """按库内进度补漏：只处理 time > 最新信号 的成交，避免重启刷历史。"""
+        address = str(address or "").lower()
+        if not address:
+            return 0
+        with self.lock:
+            known = address in self.enabled
+        if not known:
+            return 0
+        since_ms = self._last_signal_ms(address)
+        fills = hint_fills
+        if fills is None:
+            try:
+                raw = post_info({"type": "userFills", "user": address}, timeout=20)
+            except Exception as exc:
+                log(f"补漏拉取失败 {short_addr(address)}: {exc}")
+                return 0
+            fills = raw if isinstance(raw, list) else []
+        newer = [
+            fill
+            for fill in fills
+            if isinstance(fill, dict) and int(fill.get("time") or 0) > since_ms
+        ]
+        # 旧成交只记 tid，防止稍后 live 重复；新成交进信号管道
+        for fill in fills:
+            if not isinstance(fill, dict):
+                continue
+            if int(fill.get("time") or 0) <= since_ms:
+                self._remember_tid(fill)
+        newer.sort(key=lambda fill: (int(fill.get("time") or 0), int(fill.get("tid") or 0)))
+        for fill in newer:
+            # 允许处理快照里已见过的 tid（否则断线期间成交会永远丢）
+            tid = fill.get("tid")
+            if tid is not None:
+                with self.lock:
+                    self.seen_tids.pop(str(tid), None)
+            self._push_fill(address, fill)
+        if newer:
+            log(f"补漏 {short_addr(address)} 新成交 {len(newer)} 条（库进度 {fmt_time(since_ms)}）")
+        return len(newer)
+
     def _on_message(self, message: str) -> None:
         try:
             msg = json.loads(message)
@@ -370,10 +430,12 @@ class SignalHub:
         address = str(data.get("user") or "").lower()
         fills = data.get("fills") or []
         if data.get("isSnapshot"):
-            for fill in fills:
-                if isinstance(fill, dict):
-                    self._remember_tid(fill)
-            log(f"跳过快照 {len(fills)} 条  {short_addr(address)}")
+            # 以前整批跳过快照会丢掉断线期间成交；改为按库内进度追平
+            log(f"收到快照 {len(fills)} 条  {short_addr(address)}，按库进度补漏")
+            try:
+                self.catchup_address(address, hint_fills=fills)
+            except Exception as exc:
+                log(f"快照补漏失败 {short_addr(address)}: {exc}")
             return
         with self.lock:
             known = address in self.enabled
@@ -453,11 +515,27 @@ class SignalHub:
             self._flush(key)
 
     def _poll_loop(self) -> None:
+        last_catchup = 0.0
         while not self.stop.wait(POLL_SEC):
             try:
                 self.reload_wallets()
             except Exception as exc:
                 log(f"读名单失败: {exc}")
+            now = time.time()
+            if now - last_catchup < CATCHUP_SEC:
+                continue
+            last_catchup = now
+            with self.lock:
+                addresses = list(self.enabled)
+            for address in addresses:
+                if self.stop.is_set():
+                    break
+                try:
+                    self.catchup_address(address)
+                except Exception as exc:
+                    log(f"定时补漏失败 {short_addr(address)}: {exc}")
+                if self.stop.wait(0.4):
+                    break
 
     def _equity_loop(self) -> None:
         while not self.stop.is_set():
