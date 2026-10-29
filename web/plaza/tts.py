@@ -15,6 +15,8 @@ MAX_CHARS = 80
 _CACHE_TTL = 6 * 3600
 _CACHE_LOCK = threading.Lock()
 _MEM: dict[str, tuple[float, bytes]] = {}
+_LAST_PURGE = 0.0
+_PURGE_EVERY = 15 * 60  # 最多每 15 分钟扫盘清一次
 
 
 def _cache_dir() -> Path:
@@ -29,6 +31,30 @@ def _cache_dir() -> Path:
 
 def _key(text: str) -> str:
     return hashlib.sha256(f"{VOICE}\n{text}".encode("utf-8")).hexdigest()[:32]
+
+
+def purge_tts_cache(*, force: bool = False) -> int:
+    """删除过期 mp3；返回删除数量。合成时顺带调用，无需单独 cron。"""
+    global _LAST_PURGE
+    now = time.time()
+    if not force and now - _LAST_PURGE < _PURGE_EVERY:
+        return 0
+    _LAST_PURGE = now
+    removed = 0
+    root = _cache_dir()
+    for path in root.glob("*.mp3"):
+        try:
+            age = now - path.stat().st_mtime
+            if age >= _CACHE_TTL:
+                path.unlink(missing_ok=True)
+                removed += 1
+        except OSError:
+            continue
+    with _CACHE_LOCK:
+        dead = [key for key, (ts, _) in _MEM.items() if now - ts >= _CACHE_TTL]
+        for key in dead:
+            _MEM.pop(key, None)
+    return removed
 
 
 async def _edge_bytes(text: str) -> bytes:
@@ -54,6 +80,7 @@ def synthesize(text: str) -> bytes:
         cleaned = cleaned[:MAX_CHARS]
     key = _key(cleaned)
     now = time.time()
+    purge_tts_cache()
     with _CACHE_LOCK:
         hit = _MEM.get(key)
         if hit and now - hit[0] < _CACHE_TTL:
