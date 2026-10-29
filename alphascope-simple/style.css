@@ -122,3 +122,5 @@ header{background:#fff;border-bottom-color:var(--line);box-shadow:none}
 a.tg-user{cursor:pointer}
 a.tg-user:hover .tg-name{color:#2563eb}
 @media(max-width:620px){.account-profile-row{align-items:flex-start}.account-profile-row .btn{width:100%}}
+
+.feed-scopes{margin-bottom:6px}.feed-scopes .chip.on{background:#173658;border-color:#173658;color:#fff}

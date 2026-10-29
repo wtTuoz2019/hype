@@ -9,6 +9,7 @@ var live = window.ALPHASCOPE || null;
 var wallets = live && live.wallets ? live.wallets : fallbackWallets;
 var events = live && live.events ? live.events : fallbackEvents.map(function(row, index){return {id:index,time:row[0],symbol:row[1],act:row[2],wallet:row[3],amount:row[4]};});
 var filter = '全部';
+var feedScope = localStorage.getItem('as_feed_scope') === 'subs' ? 'subs' : 'all';
 var seen = {};
 var spokenAlerts = {};
 events.forEach(function(row){
@@ -144,16 +145,26 @@ function render(){
   renderDirectionOverview();
   var feed = $('#feed');
   if(feed){
-    var rows = events.filter(function(row){ return filter === '全部' || String(row.act).includes(filter); });
-    feed.innerHTML = rows.map(eventHTML).join('') || '<div class="empty">暂无对应开单快讯</div>';
+    var subs = subscriptions().map(String);
+    var rows = events.filter(function(row){
+      if(filter !== '全部' && !String(row.act).includes(filter)) return false;
+      if(feedScope === 'subs') return subs.indexOf(String(row.wallet)) >= 0;
+      return true;
+    });
+    var emptyTip = feedScope === 'subs'
+      ? (subs.length ? '暂无已订阅钱包的开单快讯' : '还没有订阅钱包，先在快讯或排行榜点「订阅提醒」')
+      : '暂无对应开单快讯';
+    feed.innerHTML = rows.map(eventHTML).join('') || '<div class="empty">' + emptyTip + '</div>';
   }
   if($('#sub-count')) $('#sub-count').textContent = subscriptions().length + ' 个';
   if($('#voice-mode-summary')) updateVoiceUI();
+  updateFeedScopeUI();
   if($('#sync-status')){
     var poll = live && live.poll_sec ? live.poll_sec : 3;
-    $('#sync-status').textContent = pro()
+    var scopeTip = feedScope === 'subs' ? ' · 仅已订阅钱包' : ' · 全部监控钱包';
+    $('#sync-status').textContent = (pro()
       ? ('列表约每 ' + poll + ' 秒刷新 · 新开单约 1 分钟后可见')
-      : ('列表约每 ' + poll + ' 秒刷新 · 新开单约 30 分钟后可见');
+      : ('列表约每 ' + poll + ' 秒刷新 · 新开单约 30 分钟后可见')) + scopeTip;
   }
 }
 function delaySeconds(){
@@ -196,9 +207,25 @@ function tickCountdown(){
 }
 function selectFilter(name, el){
   filter = name;
-  document.querySelectorAll('.chip').forEach(function(node){ node.classList.remove('on'); });
+  document.querySelectorAll('.toolbar:not(.feed-scopes) .chip').forEach(function(node){ node.classList.remove('on'); });
   el.classList.add('on');
   render();
+}
+function selectFeedScope(scope, el){
+  feedScope = scope === 'subs' ? 'subs' : 'all';
+  localStorage.setItem('as_feed_scope', feedScope);
+  updateFeedScopeUI();
+  if(el){
+    document.querySelectorAll('.feed-scopes .chip').forEach(function(node){ node.classList.remove('on'); });
+    el.classList.add('on');
+  }
+  render();
+}
+function updateFeedScopeUI(){
+  var allBtn = $('#feed-scope-all');
+  var subsBtn = $('#feed-scope-subs');
+  if(allBtn) allBtn.classList.toggle('on', feedScope === 'all');
+  if(subsBtn) subsBtn.classList.toggle('on', feedScope === 'subs');
 }
 function voiceMode(){ return localStorage.getItem('as_voice_mode') === 'subs' ? 'subs' : 'all'; }
 function setVoiceMode(mode){ localStorage.setItem('as_voice_mode', mode === 'subs' ? 'subs' : 'all'); updateVoiceUI(); }
