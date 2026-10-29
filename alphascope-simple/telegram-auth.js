@@ -9,7 +9,7 @@ function refresh(){
     if(!user){el.innerHTML='<button class="tg-login" type="button" onclick="openTelegramLogin()">登录</button>';return;}
     var photo = user.photo ? '<img class="tg-avatar" alt="" src="'+esc(user.photo)+'">' : '';
     var tip = user.handle ? ('@' + user.handle) : (user.label || '');
-    el.innerHTML='<span class="tg-user" title="'+esc(tip)+'">'+photo+'<span class="tg-name">'+esc(user.label)+'</span></span><button class="tg-login" type="button" onclick="logoutTelegram()">退出</button>';
+    el.innerHTML='<a class="tg-user" href="/account/" title="个人中心 · '+esc(tip)+'">'+photo+'<span class="tg-name">'+esc(user.label)+'</span></a><button class="tg-login" type="button" onclick="logoutTelegram()">退出</button>';
   });
 }
 function dlg(){var node=document.getElementById('tg-login-dialog');if(!node){node=document.createElement('dialog');node.id='tg-login-dialog';node.className='tg-dialog login-chooser';document.body.appendChild(node);}return node;}

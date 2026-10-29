@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>个人中心 - AlphaScope</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <nav class="nav">
+    <a class="brand" href="index.html">● AlphaScope</a>
+    <div class="links">
+      <a href="index.html">开单快讯</a>
+      <a href="leaderboard.html">钱包排行榜</a>
+      <a href="analysis.html">综合分析</a>
+      <a href="pricing.html">会员中心</a>
+      <a href="account.html" class="active">个人中心</a>
+    </div>
+    <div class="tg-account" id="tg-account"><button class="tg-login" type="button" onclick="openTelegramLogin()">登录</button></div>
+  </nav>
+</header>
+<main>
+  <div class="eyebrow">ACCOUNT</div>
+  <h1>个人中心</h1>
+  <p class="sub">查看登录身份、会员状态和已订阅的聪明钱包。</p>
+
+  <section class="panel pad account-guest hidden" id="account-guest">
+    <h2>还没有登录</h2>
+    <p class="sub" style="margin-bottom:16px">登录后可同步 Pro 状态、订阅钱包，并在多端保持同一账号。</p>
+    <button class="btn" type="button" onclick="openTelegramLogin()">Telegram / OKX 登录</button>
+  </section>
+
+  <div id="account-body" class="hidden">
+    <section class="panel pad account-profile">
+      <div class="account-profile-row">
+        <div class="account-avatar" id="account-avatar">◎</div>
+        <div class="account-identity">
+          <h2 id="account-name">—</h2>
+          <div class="tiny" id="account-handle">—</div>
+          <div class="account-tags">
+            <span class="pill" id="account-login-pill">—</span>
+            <span class="pill" id="account-pro-pill">—</span>
+          </div>
+        </div>
+        <button class="btn secondary" type="button" onclick="logoutTelegram()">退出登录</button>
+      </div>
+    </section>
+
+    <div class="two account-grid">
+      <section class="panel pad">
+        <h2>会员状态</h2>
+        <ul class="mini-list">
+          <li><span>当前方案</span><b id="account-plan">—</b></li>
+          <li><span>快讯延迟</span><b id="account-delay">—</b></li>
+          <li><span>语音提醒</span><b id="account-voice">按首页开关</b></li>
+        </ul>
+        <a class="btn" style="width:100%;margin-top:14px;text-align:center;display:inline-block" href="pricing.html">去会员中心</a>
+      </section>
+      <section class="panel pad">
+        <h2>账号信息</h2>
+        <ul class="mini-list">
+          <li><span>登录方式</span><b id="account-method">—</b></li>
+          <li><span>邀请码</span><b id="account-invite">—</b></li>
+          <li><span>最近登录</span><b id="account-last">—</b></li>
+        </ul>
+        <p class="tiny" style="margin-top:12px" id="account-wallet-line"></p>
+      </section>
+    </div>
+
+    <section class="panel pad" style="margin-top:16px">
+      <div class="topline">
+        <h2 style="margin:0">已订阅钱包</h2>
+        <a class="head-link" href="leaderboard.html">去排行榜订阅 →</a>
+      </div>
+      <div id="account-subs" class="account-subs"></div>
+    </section>
+  </div>
+
+  <p class="footer">个人中心仅展示前台登录账号 · 后台 admin 不会出现在这里</p>
+</main>
+<script src="telegram-auth.js"></script>
+<script src="app.js"></script>
+<script>
+(function(){
+  var live = window.ALPHASCOPE || null;
+  function esc(v){ return String(v||'').replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];}); }
+  function walletById(id){
+    var list = (live && live.wallets) || [];
+    for(var i=0;i<list.length;i++){ if(String(list[i].id)===String(id)) return list[i]; }
+    return null;
+  }
+  function paint(){
+    var user = live && live.user;
+    var guest = document.getElementById('account-guest');
+    var body = document.getElementById('account-body');
+    if(!user){
+      guest.classList.remove('hidden');
+      body.classList.add('hidden');
+      return;
+    }
+    guest.classList.add('hidden');
+    body.classList.remove('hidden');
+    var avatar = document.getElementById('account-avatar');
+    if(user.photo){
+      avatar.innerHTML = '<img alt="" src="'+esc(user.photo)+'">';
+    } else {
+      avatar.textContent = (user.label || '用').slice(0,1);
+    }
+    document.getElementById('account-name').textContent = user.label || '会员';
+    document.getElementById('account-handle').textContent = user.handle ? ('@' + user.handle) : (user.wallet || '已登录');
+    document.getElementById('account-login-pill').textContent = user.login === 'wallet' ? 'OKX 钱包' : 'Telegram';
+    var pro = !!(live && live.pro);
+    document.getElementById('account-pro-pill').textContent = pro ? 'Pro 会员' : '免费用户';
+    document.getElementById('account-plan').textContent = pro ? 'Pro' : '免费版';
+    document.getElementById('account-delay').textContent = pro ? '约 1 分钟' : '约 30 分钟';
+    document.getElementById('account-method').textContent = user.login === 'wallet' ? 'OKX 钱包签名' : 'Telegram 授权';
+    document.getElementById('account-invite').textContent = user.invite || '—';
+    document.getElementById('account-last').textContent = user.last_login || '—';
+    var walletLine = document.getElementById('account-wallet-line');
+    walletLine.textContent = user.wallet ? ('绑定钱包：' + user.wallet) : (user.handle ? ('Telegram：@' + user.handle) : '');
+    var subs = (live && live.subs) || [];
+    var box = document.getElementById('account-subs');
+    if(!subs.length){
+      box.innerHTML = '<div class="empty" style="padding:24px">还没有订阅钱包。去排行榜点「订阅提醒」即可。</div>';
+      return;
+    }
+    box.innerHTML = subs.map(function(id){
+      var w = walletById(id);
+      var name = w ? w.name : ('钱包 #' + id);
+      var addr = w ? w.address : '';
+      var href = '/wallet/?id=' + encodeURIComponent(id);
+      return '<a class="account-sub-row" href="'+href+'"><div><strong>'+esc(name)+'</strong><small>'+esc(addr)+'</small></div><span>查看 →</span></a>';
+    }).join('');
+  }
+  document.addEventListener('DOMContentLoaded', paint);
+})();
+</script>
+</body>
+</html>

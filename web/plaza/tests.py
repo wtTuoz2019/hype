@@ -425,6 +425,7 @@ class ScopePageTests(TestCase):
         self.assertContains(self.client.get("/leaderboard/"), "聪明钱包排行榜")
         self.assertContains(self.client.get("/analysis/"), "综合分析")
         self.assertContains(self.client.get("/pricing/"), "会员中心")
+        self.assertContains(self.client.get("/account/"), "个人中心")
         self.assertContains(self.client.get("/wallet/?id=B2"), "钱包详情")
 
     def test_real_tape_respects_delay_and_uses_cached_stats(self):

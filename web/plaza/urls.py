@@ -9,6 +9,7 @@ urlpatterns = [
     path("leaderboard/", lambda request: scope_pages.render_scope(request, "board"), name="leaderboard"),
     path("analysis/", lambda request: scope_pages.render_scope(request, "analysis"), name="analysis"),
     path("pricing/", lambda request: scope_pages.render_scope(request, "pricing"), name="pricing"),
+    path("account/", lambda request: scope_pages.render_scope(request, "account"), name="account"),
     path("wallet/", lambda request: scope_pages.render_scope(request, "wallet"), name="wallet"),
     path("api/tape/", scope_pages.tape_feed, name="tape_feed"),
     path("api/tape/test/", scope_pages.tape_test, name="tape_test"),

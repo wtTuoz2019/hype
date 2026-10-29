@@ -38,6 +38,7 @@ PAGES = {
     "board": "leaderboard.html",
     "analysis": "analysis.html",
     "pricing": "pricing.html",
+    "account": "account.html",
     "wallet": "wallet-detail.html",
 }
 
@@ -55,6 +56,7 @@ def _links() -> tuple[tuple[str, str], ...]:
         ("leaderboard.html", "/leaderboard/"),
         ("analysis.html", "/analysis/"),
         ("pricing.html", "/pricing/"),
+        ("account.html", "/account/"),
         ("index.html", "/"),
         ('href="style.css"', f'href="{_asset("style.css")}"'),
         ('src="telegram-auth.js"', f'src="{_asset("telegram-auth.js")}"'),
@@ -79,12 +81,25 @@ def _user(request) -> dict | None:
         label = wallet_auth.short_address(profile.wallet_address)
     else:
         label = request.user.get_username()
+    login = "wallet" if profile.wallet_address and not profile.telegram_id else "telegram"
+    if profile.telegram_id and profile.wallet_address:
+        login = "telegram"
+    last = profile.telegram_last_login_at or profile.wallet_last_login_at
+    last_text = ""
+    if last is not None:
+        from django.utils import timezone as dj_tz
+
+        last_text = dj_tz.localtime(last).strftime("%m-%d %H:%M")
     return {
         "label": label,
         "handle": handle,
         "photo": profile.telegram_photo or "",
+        "login": login,
+        "wallet": wallet_auth.short_address(profile.wallet_address) if profile.wallet_address else "",
+        "invite": profile.invite_code or "",
+        "last_login": last_text,
+        "pro": bool(profile.is_pro),
     }
-
 
 def _telegram_bot_id() -> str:
     token = settings.TELEGRAM_BOT_TOKEN or ""
@@ -129,11 +144,12 @@ def _scope_html(name: str) -> str:
 @ensure_csrf_cookie
 def render_scope(request, name: str) -> HttpResponse:
     raw = _scope_html(name)
-    # 会员页不需要塞全量钱包；详情页首屏只要瘦列表，厚数据走 /api/wallet/
-    if name == "pricing":
+    # 会员/个人中心不需要塞快讯；个人中心要瘦钱包列表用于展示订阅
+    if name in ("pricing", "account"):
         data = boot(request)
-        data["wallets"] = []
         data["events"] = []
+        if name == "pricing":
+            data["wallets"] = []
         payload = json.dumps(data, ensure_ascii=False).replace("<", "\\u003c")
     else:
         payload = json.dumps(boot(request), ensure_ascii=False).replace("<", "\\u003c")
