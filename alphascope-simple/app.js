@@ -335,8 +335,8 @@ function speak(msg, force){
 }
 function alertFor(row){
   if(!pro()) return;
-  // 减仓/平仓不喊，避免加空刷屏把语音打爆
-  if(['开多','开空','加多','加空'].indexOf(row.act) < 0) return;
+  // 开/加/减/平 都播报
+  if(['开多','开空','加多','加空','减多','减空','平多','平空'].indexOf(row.act) < 0) return;
   var key = String(row.id || '') || (String(row.wallet) + '|' + String(row.symbol) + '|' + String(row.act) + '|' + String(row.time));
   if(spokenAlerts[key]) return; // 同一条只播一次
   spokenAlerts[key] = true;
