@@ -194,33 +194,18 @@ function selectFilter(name, el){
 }
 function voiceMode(){ return localStorage.getItem('as_voice_mode') === 'subs' ? 'subs' : 'all'; }
 function setVoiceMode(mode){ localStorage.setItem('as_voice_mode', mode === 'subs' ? 'subs' : 'all'); updateVoiceUI(); }
-function voiceRepeatCount(){
-  var raw = localStorage.getItem('as_voice_repeat');
-  if(raw === null || raw === '') return 1;
-  var n = Number(raw);
-  if(!Number.isFinite(n) || n < 0) return 1;
-  return Math.floor(n);
-}
-function saveVoiceRepeat(){
-  var sel = $('#voice-repeat');
-  if(sel) localStorage.setItem('as_voice_repeat', String(sel.value));
-}
 function saveVoiceEnabled(){
   localStorage.setItem('as_voice_on', $('#voice-on') && $('#voice-on').checked ? '1' : '0');
   if($('#voice-on') && $('#voice-on').checked) unlockVoice();
-  else stopVoiceLoop();
 }
 function updateVoiceUI(){
   if($('#voice-scope')) $('#voice-scope').value = voiceMode();
-  if($('#voice-repeat')) $('#voice-repeat').value = String(voiceRepeatCount());
   if($('#voice-mode-summary')) $('#voice-mode-summary').textContent = voiceMode() === 'all' ? '当前模式：所有监控钱包的新开单都会播报' : '当前模式：仅播报已订阅的 ' + subscriptions().length + ' 个钱包' + (subscriptions().length ? '' : '（还没有订阅钱包，可在下方快讯中订阅）');
   if($('#voice-on')) $('#voice-on').checked = localStorage.getItem('as_voice_on') !== '0';
-  var stop = $('#voice-stop');
-  if(stop) stop.hidden = !voiceLoop.active;
 }
 function feedback(msg){ if($('#notify')){ $('#notify').textContent = msg; $('#notify').classList.remove('hidden'); } }
 var voiceUnlocked = false;
-var voiceLoop = { active:false, msg:'', left:0, token:0 };
+var spokenAlerts = {};
 function unlockVoice(){
   if(voiceUnlocked || !('speechSynthesis' in window)) return;
   voiceUnlocked = true;
@@ -239,73 +224,25 @@ function voiceEnabled(){
   if(!box) return localStorage.getItem('as_voice_on') !== '0';
   return !!box.checked;
 }
-function stopVoiceLoop(){
-  voiceLoop.active = false;
-  voiceLoop.msg = '';
-  voiceLoop.left = 0;
-  voiceLoop.token += 1;
-  try{ if('speechSynthesis' in window) speechSynthesis.cancel(); }catch(e){}
-  var stop = $('#voice-stop');
-  if(stop) stop.hidden = true;
-}
-function speakOnce(msg, token){
-  return new Promise(function(resolve){
-    if(!voiceEnabled() || !('speechSynthesis' in window) || token !== voiceLoop.token){
-      resolve(false);
-      return;
-    }
-    try{
-      speechSynthesis.resume();
-      var utter = new SpeechSynthesisUtterance(msg);
-      utter.lang = 'zh-CN';
-      utter.rate = 1;
-      var done = false;
-      var finish = function(ok){
-        if(done) return;
-        done = true;
-        resolve(ok);
-      };
-      utter.onend = function(){ finish(true); };
-      utter.onerror = function(){ finish(false); };
-      speechSynthesis.speak(utter);
-    }catch(e){ resolve(false); }
-  });
-}
-async function speakLoop(msg, times){
+function speak(msg){
   if(!voiceEnabled() || !('speechSynthesis' in window)) return;
   unlockVoice();
-  stopVoiceLoop();
-  var token = voiceLoop.token;
-  voiceLoop.active = true;
-  voiceLoop.msg = msg;
-  voiceLoop.left = times; // 0 = 一直重复
-  var stop = $('#voice-stop');
-  if(stop) stop.hidden = false;
-  var round = 0;
-  while(token === voiceLoop.token && voiceLoop.active){
-    round += 1;
-    if(times > 0 && round > times) break;
-    var tip = times > 0 ? ('第 ' + round + '/' + times + ' 次') : ('第 ' + round + ' 次 · 一直重复中');
-    feedback('🔊 ' + tip + ' · ' + msg);
-    var ok = await speakOnce(msg, token);
-    if(!ok || token !== voiceLoop.token || !voiceLoop.active) break;
-    if(times > 0 && round >= times) break;
-    // 间隔约 0.6 秒再播，避免连成一团
-    await new Promise(function(r){ setTimeout(r, 600); });
-  }
-  if(token === voiceLoop.token){
-    voiceLoop.active = false;
-    if(stop) stop.hidden = true;
-  }
-}
-function speak(msg){
-  var times = voiceRepeatCount();
-  speakLoop(msg, times);
+  try{
+    speechSynthesis.resume();
+    var utter = new SpeechSynthesisUtterance(msg);
+    utter.lang = 'zh-CN';
+    utter.rate = 1;
+    speechSynthesis.cancel();
+    speechSynthesis.speak(utter);
+  }catch(e){}
 }
 function alertFor(row){
   if(!pro()) return;
   // 减仓/平仓不喊，避免加空刷屏把语音打爆
   if(['开多','开空','加多','加空'].indexOf(row.act) < 0) return;
+  var key = String(row.id || '') || (String(row.wallet) + '|' + String(row.symbol) + '|' + String(row.act) + '|' + String(row.time));
+  if(spokenAlerts[key]) return; // 同一条只播一次
+  spokenAlerts[key] = true;
   var wallet = walletFor(row);
   var matches = voiceMode() === 'all' || subscriptions().indexOf(String(wallet.id)) >= 0;
   if(!matches){ feedback('已收到 ' + wallet.name + ' 的新开单；按“仅订阅钱包”模式，本次不播报。'); return; }
