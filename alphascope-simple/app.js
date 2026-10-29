@@ -209,17 +209,11 @@ function updateVoiceUI(){
 function feedback(msg){ if($('#notify')){ $('#notify').textContent = msg; $('#notify').classList.remove('hidden'); } }
 var voiceUnlocked = false;
 var spokenAlerts = {};
+var speakToken = 0;
 function unlockVoice(){
   if(voiceUnlocked || !('speechSynthesis' in window)) return;
   voiceUnlocked = true;
-  try{
-    speechSynthesis.resume();
-    var warm = new SpeechSynthesisUtterance(' ');
-    warm.volume = 0;
-    warm.lang = 'zh-CN';
-    speechSynthesis.speak(warm);
-    speechSynthesis.cancel();
-  }catch(e){}
+  try{ speechSynthesis.resume(); }catch(e){}
 }
 function voiceEnabled(){
   var box = $('#voice-on');
@@ -231,14 +225,28 @@ function speak(msg, force){
   // force=true：试听，不依赖「语音开启」开关
   if(!force && !voiceEnabled()) return;
   if(!('speechSynthesis' in window)) return;
-  unlockVoice();
+  voiceUnlocked = true;
+  var text = String(msg || '');
+  var token = ++speakToken;
   try{
     speechSynthesis.resume();
-    var utter = new SpeechSynthesisUtterance(msg);
+    var utter = new SpeechSynthesisUtterance(text);
     utter.lang = 'zh-CN';
     utter.rate = 1;
-    speechSynthesis.cancel();
-    speechSynthesis.speak(utter);
+    var start = function(){
+      if(token !== speakToken) return;
+      try{
+        speechSynthesis.resume();
+        speechSynthesis.speak(utter);
+      }catch(e){}
+    };
+    // Chrome：cancel 后立刻 speak 常被静默丢掉；仅在已有播报时先停再延后开播
+    if(speechSynthesis.speaking || speechSynthesis.pending){
+      try{ speechSynthesis.cancel(); }catch(e){}
+      setTimeout(start, 80);
+    } else {
+      start();
+    }
   }catch(e){}
 }
 function alertFor(row){
@@ -257,14 +265,45 @@ function alertFor(row){
   if('Notification' in window && Notification.permission === 'granted') new Notification('聪明钱包开单提醒', {body:msg});
 }
 function testVoice(){
-  unlockVoice();
   if(!pro()){ location.href = '/pricing/?need=alert'; return; }
   if(!('speechSynthesis' in window)){ feedback('当前浏览器不支持语音播报'); return; }
-  var pool = voiceMode() === 'all' ? wallets : wallets.filter(function(wallet){ return subscriptions().indexOf(wallet.id) >= 0; });
-  if(!pool.length){ feedback('当前是“仅订阅钱包”模式，请先在下方快讯中订阅一个钱包，再测试播报。'); return; }
+  var pool = voiceMode() === 'all'
+    ? wallets
+    : wallets.filter(function(wallet){ return subscriptions().indexOf(String(wallet.id)) >= 0; });
+  if(!pool.length){
+    feedback(voiceMode() === 'subs'
+      ? '当前是“仅订阅钱包”模式，请先在下方快讯中订阅一个钱包，再测试播报。'
+      : '暂无监控钱包，无法试听');
+    return;
+  }
   var wallet = pool[0];
-  feedback('🔊 试听 · ' + wallet.name + '，BTC 合约开多' + (voiceEnabled() ? '' : '（尚未开启自动播报）'));
-  speak('语音测试：' + wallet.name + '，BTC 合约开多', true);
+  var line = wallet.name + '，BTC 合约开多';
+  var text = '语音测试：' + line;
+  feedback('🔊 试听 · ' + line + (voiceEnabled() ? '' : '（尚未开启自动播报）'));
+  // 点击同步栈里直接 speak；若 Chrome 因 cancel 丢单，短延迟再补一次
+  try{
+    speechSynthesis.resume();
+    speakToken += 1;
+    var busy = speechSynthesis.speaking || speechSynthesis.pending;
+    if(busy){ try{ speechSynthesis.cancel(); }catch(e){} }
+    var play = function(){
+      var utter = new SpeechSynthesisUtterance(text);
+      utter.lang = 'zh-CN';
+      utter.rate = 1;
+      speechSynthesis.resume();
+      speechSynthesis.speak(utter);
+    };
+    if(busy){ setTimeout(play, 80); }
+    else { play(); }
+    voiceUnlocked = true;
+    setTimeout(function(){
+      if(!speechSynthesis.speaking && !speechSynthesis.pending){
+        try{ play(); }catch(e){}
+      }
+    }, 200);
+  }catch(e){
+    feedback('试听失败，请检查系统声音或浏览器是否允许语音');
+  }
 }
 async function permission(){
   if('Notification' in window) await Notification.requestPermission();
