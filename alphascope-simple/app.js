@@ -224,8 +224,10 @@ function voiceEnabled(){
   if(!box) return localStorage.getItem('as_voice_on') !== '0';
   return !!box.checked;
 }
-function speak(msg){
-  if(!voiceEnabled() || !('speechSynthesis' in window)) return;
+function speak(msg, force){
+  // force=true：试听，不依赖「语音开启」开关
+  if(!force && !voiceEnabled()) return;
+  if(!('speechSynthesis' in window)) return;
   unlockVoice();
   try{
     speechSynthesis.resume();
@@ -271,13 +273,12 @@ async function simulate(){
 function testVoice(){
   unlockVoice();
   if(!pro()){ location.href = '/pricing/?need=alert'; return; }
-  if(!voiceEnabled()){ feedback('请先开启语音播报'); return; }
   if(!('speechSynthesis' in window)){ feedback('当前浏览器不支持语音播报'); return; }
   var pool = voiceMode() === 'all' ? wallets : wallets.filter(function(wallet){ return subscriptions().indexOf(wallet.id) >= 0; });
   if(!pool.length){ feedback('当前是“仅订阅钱包”模式，请先在下方快讯中订阅一个钱包，再测试播报。'); return; }
   var wallet = pool[0];
-  feedback('🔊 测试播报 · ' + wallet.name + '，BTC 合约开多');
-  speak('语音测试：' + wallet.name + '，BTC 合约开多');
+  feedback('🔊 试听 · ' + wallet.name + '，BTC 合约开多' + (voiceEnabled() ? '' : '（尚未开启自动播报）'));
+  speak('语音测试：' + wallet.name + '，BTC 合约开多', true);
 }
 async function permission(){
   if('Notification' in window) await Notification.requestPermission();
