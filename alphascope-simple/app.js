@@ -279,7 +279,7 @@ function testVoice(){
   var wallet = pool[0];
   var line = wallet.name + '，BTC 合约开多';
   var text = '语音测试：' + line;
-  feedback('🔊 试听 · ' + line + (voiceEnabled() ? '' : '（尚未开启自动播报）'));
+  feedback('🔊 试听 · ' + line);
   // 点击同步栈里直接 speak；若 Chrome 因 cancel 丢单，短延迟再补一次
   try{
     speechSynthesis.resume();
