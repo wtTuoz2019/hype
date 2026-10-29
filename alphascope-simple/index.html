@@ -6,7 +6,7 @@
       <select id="voice-scope" class="compact-select" onchange="setVoiceMode(this.value)" aria-label="播报范围"><option value="all">全部钱包</option><option value="subs">仅订阅钱包</option></select>
       <label class="compact-toggle"><input id="voice-on" type="checkbox" checked onchange="saveVoiceEnabled()"><span>语音开启</span></label>
       <button class="btn compact-test" type="button" onclick="testVoice()">▶ 试听</button>
-      <details class="compact-more"><summary>更多设置</summary><div class="compact-popover"><button class="btn secondary" type="button" onclick="permission()">允许桌面通知</button><p id="voice-mode-summary" role="status"></p><p>已订阅 <b id="sub-count">0 个</b> 钱包</p></div></details>
+      <details class="compact-more"><summary>更多设置</summary><div class="compact-popover"><button class="btn secondary" type="button" onclick="permission()">允许桌面通知</button><label class="voice-repeat-label">单条重复 <select id="voice-repeat" class="compact-select" onchange="saveVoiceRepeat()"><option value="1">播 1 次</option><option value="3">播 3 次</option><option value="5">播 5 次</option><option value="0">一直重复</option></select></label><button class="btn secondary" type="button" id="voice-stop" onclick="stopVoiceLoop()" hidden>停止播报</button><p id="voice-mode-summary" role="status"></p><p>已订阅 <b id="sub-count">0 个</b> 钱包</p></div></details>
     </div>
     <div data-free-only class="compact-free"><span>即时播报仅限 Pro</span><a class="btn" href="pricing.html?need=alert">升级开启</a></div>
   </div>

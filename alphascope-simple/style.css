@@ -104,3 +104,6 @@ header{background:#fff;border-bottom-color:var(--line);box-shadow:none}
 /* Feed visibility countdown sits after 最新开单 */
 .news-layout .topline{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.news-layout .topline h2{display:flex;align-items:center;flex-wrap:wrap;gap:8px}.sync-countdown{font-size:14px;font-weight:700;font-variant-numeric:tabular-nums;color:#1c60be;letter-spacing:.2px;line-height:1}
 
+
+.voice-repeat-label{display:flex;align-items:center;gap:8px;margin:10px 0;font-size:12px;color:#334155}.voice-repeat-label .compact-select{max-width:120px}
+#voice-stop{margin:6px 0 10px}
