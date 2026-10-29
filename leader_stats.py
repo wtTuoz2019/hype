@@ -242,7 +242,7 @@ def _closes(address: str) -> tuple[list[dict], float | None, int]:
         )
     closes.sort(key=lambda row: row["time"], reverse=True)
     rate = (wins / len(closes)) if closes else None
-    return closes[:12], rate, len(closes)
+    return closes[:40], rate, len(closes)
 
 
 def _read(address: str) -> dict | None:

@@ -433,4 +433,27 @@ def wallet_detail(leader_id: str | int) -> dict | None:
     leader = Leader.objects.filter(pk=pk, enabled=True).select_related("snapshot").first()
     if leader is None:
         return None
-    return _card(leader, detail=True)
+    # 详情页打开时：缓存超过 2 分钟就当场全量刷新一次（持仓+平仓），
+    # 不依赖后台轮询；也不镜像 Hyperbot，数据源仍是 Hyperliquid。
+    snap = None
+    try:
+        snap = leader.snapshot
+    except Exception:  # noqa: BLE001
+        snap = None
+    stale = snap is None or (timezone.now() - snap.fetched_at).total_seconds() >= 120
+    if stale:
+        try:
+            from plaza.services import refresh_leader
+
+            refresh_leader(leader, full=True)
+            leader = Leader.objects.filter(pk=pk, enabled=True).select_related("snapshot").first()
+        except Exception as exc:
+            print(f"详情刷新 {pk} 失败: {exc}", flush=True)
+    if leader is None:
+        return None
+    card = _card(leader, detail=True)
+    try:
+        card["updated"] = timezone.localtime(leader.snapshot.fetched_at).strftime("%m-%d %H:%M:%S")
+    except Exception:  # noqa: BLE001
+        card["updated"] = ""
+    return card
