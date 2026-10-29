@@ -210,6 +210,35 @@ function feedback(msg){ if($('#notify')){ $('#notify').textContent = msg; $('#no
 var voiceUnlocked = false;
 var spokenAlerts = {};
 var speakToken = 0;
+var utterKeep = null; // Chrome 会回收未引用的 Utterance，导致无声无报错
+var cachedVoices = [];
+function refreshVoices(){
+  if(!('speechSynthesis' in window)) return;
+  try{ cachedVoices = speechSynthesis.getVoices() || []; }catch(e){ cachedVoices = []; }
+}
+if('speechSynthesis' in window){
+  refreshVoices();
+  try{ speechSynthesis.addEventListener('voiceschanged', refreshVoices); }catch(e){ speechSynthesis.onvoiceschanged = refreshVoices; }
+}
+function pickZhVoice(){
+  refreshVoices();
+  var list = cachedVoices;
+  if(!list.length) return null;
+  var score = function(v){
+    var lang = String(v.lang || '').toLowerCase().replace('_', '-');
+    var name = String(v.name || '').toLowerCase();
+    if(lang === 'zh-cn' || lang === 'zh-hans' || lang === 'zh-hans-cn') return 100;
+    if(lang.indexOf('zh') === 0) return 80;
+    if(/chinese|普通话|国语|tingting|ting-ting|sinji|meijia|xiaoxiao|yaoyao|huihui/.test(name)) return 90;
+    return 0;
+  };
+  var best = null, bestScore = 0;
+  for(var i = 0; i < list.length; i++){
+    var s = score(list[i]);
+    if(s > bestScore){ best = list[i]; bestScore = s; }
+  }
+  return best;
+}
 function unlockVoice(){
   if(voiceUnlocked || !('speechSynthesis' in window)) return;
   voiceUnlocked = true;
@@ -221,33 +250,88 @@ function voiceEnabled(){
   if(!box) return localStorage.getItem('as_voice_on') !== '0';
   return !!box.checked;
 }
+function speakNow(text, opts){
+  opts = opts || {};
+  if(!('speechSynthesis' in window)){
+    if(opts.onFail) opts.onFail('no-api');
+    return;
+  }
+  voiceUnlocked = true;
+  var token = ++speakToken;
+  var run = function(){
+    if(token !== speakToken) return;
+    var utter = new SpeechSynthesisUtterance(String(text || ''));
+    utterKeep = utter;
+    var voice = pickZhVoice();
+    utter.lang = (voice && voice.lang) || 'zh-CN';
+    if(voice) utter.voice = voice;
+    utter.rate = 1;
+    utter.pitch = 1;
+    utter.volume = 1;
+    var started = false;
+    utter.onstart = function(){ started = true; if(opts.onStart) opts.onStart(); };
+    utter.onerror = function(ev){
+      if(opts.onFail) opts.onFail((ev && ev.error) || 'error');
+    };
+    try{
+      // 清掉卡住的 paused 队列；cancel 后必须延后 speak
+      try{ speechSynthesis.cancel(); }catch(e){}
+      setTimeout(function(){
+        if(token !== speakToken) return;
+        try{
+          speechSynthesis.resume();
+          speechSynthesis.speak(utter);
+        }catch(e){
+          if(opts.onFail) opts.onFail(String(e && e.message || e));
+          return;
+        }
+        // Chrome 偶发 speak 后既不 start 也不 error，补一次
+        setTimeout(function(){
+          if(token !== speakToken || started) return;
+          if(speechSynthesis.speaking || speechSynthesis.pending) return;
+          try{
+            var again = new SpeechSynthesisUtterance(utter.text);
+            utterKeep = again;
+            again.lang = utter.lang;
+            if(utter.voice) again.voice = utter.voice;
+            again.rate = 1; again.volume = 1;
+            again.onstart = utter.onstart;
+            again.onerror = utter.onerror;
+            speechSynthesis.resume();
+            speechSynthesis.speak(again);
+          }catch(e){}
+        }, 250);
+      }, 60);
+    }catch(e){
+      if(opts.onFail) opts.onFail(String(e && e.message || e));
+    }
+  };
+  refreshVoices();
+  if(!cachedVoices.length){
+    // 等系统语音列表；超时也播，让浏览器自己兜底
+    var waited = false;
+    var timer = setTimeout(function(){ if(waited) return; waited = true; run(); }, 400);
+    var once = function(){
+      if(waited) return;
+      refreshVoices();
+      if(!cachedVoices.length) return;
+      waited = true;
+      clearTimeout(timer);
+      run();
+    };
+    try{ speechSynthesis.addEventListener('voiceschanged', once, {once:true}); }catch(e){
+      var prev = speechSynthesis.onvoiceschanged;
+      speechSynthesis.onvoiceschanged = function(){ once(); if(typeof prev === 'function') prev(); };
+    }
+    try{ speechSynthesis.getVoices(); }catch(e){}
+  } else {
+    run();
+  }
+}
 function speak(msg, force){
   // force=true：试听，不依赖「语音开启」开关
   if(!force && !voiceEnabled()) return;
-  if(!('speechSynthesis' in window)) return;
-  voiceUnlocked = true;
-  var text = String(msg || '');
-  var token = ++speakToken;
-  try{
-    speechSynthesis.resume();
-    var utter = new SpeechSynthesisUtterance(text);
-    utter.lang = 'zh-CN';
-    utter.rate = 1;
-    var start = function(){
-      if(token !== speakToken) return;
-      try{
-        speechSynthesis.resume();
-        speechSynthesis.speak(utter);
-      }catch(e){}
-    };
-    // Chrome：cancel 后立刻 speak 常被静默丢掉；仅在已有播报时先停再延后开播
-    if(speechSynthesis.speaking || speechSynthesis.pending){
-      try{ speechSynthesis.cancel(); }catch(e){}
-      setTimeout(start, 80);
-    } else {
-      start();
-    }
-  }catch(e){}
+  speakNow(msg);
 }
 function alertFor(row){
   if(!pro()) return;
@@ -279,31 +363,33 @@ function testVoice(){
   var wallet = pool[0];
   var line = wallet.name + '，BTC 合约开多';
   var text = '语音测试：' + line;
-  feedback('🔊 试听 · ' + line);
-  // 点击同步栈里直接 speak；若 Chrome 因 cancel 丢单，短延迟再补一次
+  feedback('🔊 试听中 · ' + line);
+  refreshVoices();
+  // 1) 点击同步栈里立刻 speak（满足浏览器用户手势）
   try{
     speechSynthesis.resume();
-    speakToken += 1;
-    var busy = speechSynthesis.speaking || speechSynthesis.pending;
-    if(busy){ try{ speechSynthesis.cancel(); }catch(e){} }
-    var play = function(){
-      var utter = new SpeechSynthesisUtterance(text);
-      utter.lang = 'zh-CN';
-      utter.rate = 1;
-      speechSynthesis.resume();
-      speechSynthesis.speak(utter);
-    };
-    if(busy){ setTimeout(play, 80); }
-    else { play(); }
+    var utter = new SpeechSynthesisUtterance(text);
+    utterKeep = utter;
+    var voice = pickZhVoice();
+    utter.lang = (voice && voice.lang) || 'zh-CN';
+    if(voice) utter.voice = voice;
+    utter.rate = 1;
+    utter.volume = 1;
+    utter.onstart = function(){ feedback('🔊 正在播报 · ' + line); };
+    speechSynthesis.speak(utter);
     voiceUnlocked = true;
-    setTimeout(function(){
-      if(!speechSynthesis.speaking && !speechSynthesis.pending){
-        try{ play(); }catch(e){}
+  }catch(e){}
+  // 2) 若没真正开播，再走 cancel+延后重试
+  setTimeout(function(){
+    if(speechSynthesis.speaking || speechSynthesis.pending) return;
+    speakNow(text, {
+      onStart: function(){ feedback('🔊 正在播报 · ' + line); },
+      onFail: function(reason){
+        if(reason === 'interrupted' || reason === 'canceled') return;
+        feedback('试听失败（' + reason + '）。请检查系统声音，或换 Chrome / Safari 再试');
       }
-    }, 200);
-  }catch(e){
-    feedback('试听失败，请检查系统声音或浏览器是否允许语音');
-  }
+    });
+  }, 300);
 }
 async function permission(){
   if('Notification' in window) await Notification.requestPermission();
