@@ -11,3 +11,17 @@
 6. 如果采用 Telegram 新版 Login/OIDC 方案，需按新版官方文档实现服务端 token 验证；不要混用两种签名算法。
 
 说明：纯静态 HTML 无法安全完成真实 Telegram 登录验证，机器人 token 绝不可写入前端。
+
+## 开单动态推到 Telegram 群
+1. 用现有登录机器人（或新建一个），把机器人拉进目标群，并允许发消息。
+2. 在群里随便发一条内容，浏览器打开：
+   `https://api.telegram.org/bot<TOKEN>/getUpdates`
+   找到 `"chat":{"id":-100…}`，把这个 id 写入服务器 `.env`：
+   ```
+   TELEGRAM_NOTIFY_CHAT_ID=-100xxxxxxxxxx
+   TELEGRAM_SITE_URL=https://p.c7.pro
+   ```
+   可选：`TELEGRAM_NOTIFY_LABELS=开多,开空,加多,加空`（不填则全部动作都推）。
+3. `./deploy.sh`（会重启监控）。再执行：
+   `./.venv/bin/python manage.py telegram_ping`
+   群里应收到测试消息。之后 WebSocket 写入的新开单会自动推群。

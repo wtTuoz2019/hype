@@ -33,8 +33,10 @@ def save_signal(signal: dict) -> None:
     )
     if created:
         from plaza.copy_run import enqueue_signal
+        from plaza.telegram_notify import notify_trade_signal
 
         enqueue_signal(row.id)
+        notify_trade_signal(row.id)
 
 
 def group_fills(fills: list[dict]) -> list[list[dict]]:

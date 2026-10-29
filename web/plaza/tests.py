@@ -768,3 +768,41 @@ class ScopePageTests(TestCase):
         self.assertEqual(response.status_code, 302)
         home = self.client.get("/")
         self.assertContains(home, "Bob")
+
+    @override_settings(
+        TELEGRAM_BOT_TOKEN="123:ABC",
+        TELEGRAM_NOTIFY_CHAT_ID="-1001",
+        TELEGRAM_SITE_URL="https://p.c7.pro",
+        TELEGRAM_NOTIFY_LABELS="",
+        TELEGRAM_NOTIFY_SYNC=True,
+    )
+    def test_telegram_group_notify_on_new_signal(self):
+        from plaza.ingest import save_signal
+        from plaza.telegram_notify import format_signal_message
+
+        leader = Leader.objects.create(name="群推钱包", address="0x" + "aa" * 20, enabled=True)
+        with patch("plaza.telegram_notify._post") as post:
+            post.return_value = {"ok": True}
+            save_signal(
+                {
+                    "id": "sig:tg:1",
+                    "leader": leader.address,
+                    "time": int(time.time() * 1000),
+                    "coin": "BTC",
+                    "action": "open",
+                    "side": "long",
+                    "label": "开多",
+                    "prev_szi": "0",
+                    "szi": "1",
+                    "delta_szi": "1",
+                    "px": "100000",
+                }
+            )
+            self.assertTrue(post.called)
+            payload = post.call_args[0][1]
+            self.assertEqual(payload["chat_id"], "-1001")
+            self.assertIn("开多", payload["text"])
+            self.assertIn("BTC", payload["text"])
+        row = TradeSignal.objects.get(sig_id="sig:tg:1")
+        text = format_signal_message(row)
+        self.assertIn("群推钱包", text)

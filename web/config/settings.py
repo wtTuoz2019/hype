@@ -118,6 +118,10 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 LOGIN_URL = "/login/"
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME", "")
+# 开单快讯推群：把机器人拉进群后填 chat_id（群一般为 -100 开头）
+TELEGRAM_NOTIFY_CHAT_ID = os.environ.get("TELEGRAM_NOTIFY_CHAT_ID", "")
+TELEGRAM_SITE_URL = os.environ.get("TELEGRAM_SITE_URL", "https://p.c7.pro")
+TELEGRAM_NOTIFY_LABELS = os.environ.get("TELEGRAM_NOTIFY_LABELS", "")  # 空=全部；如 开多,开空,加多,加空
 LOGIN_REDIRECT_URL = "/"
 LOGOUT_REDIRECT_URL = "/"
 
