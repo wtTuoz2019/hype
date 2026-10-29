@@ -176,6 +176,22 @@ def _period(block: dict) -> dict:
     }
 
 
+def _lev_text(leverage: object) -> str:
+    if not isinstance(leverage, dict):
+        return "—"
+    value = leverage.get("value")
+    if value is None:
+        return "—"
+    typ = str(leverage.get("type") or "")
+    if typ == "isolated":
+        mode = "逐仓"
+    elif typ == "cross":
+        mode = "全仓"
+    else:
+        mode = typ or ""
+    return f"{mode} {value}x".strip()
+
+
 def _positions(address: str) -> list[dict]:
     rows: list[dict] = []
     for name, state in clearinghouses(address):
@@ -197,6 +213,7 @@ def _positions(address: str) -> list[dict]:
                     "szi": size,
                     "entry": str(pos.get("entryPx") or ""),
                     "upnl": upnl,
+                    "lev": _lev_text(pos.get("leverage")),
                     "dex": name or "main",
                 }
             )

@@ -297,7 +297,9 @@ def _when_text(row: dict) -> str:
         return "—"
 
 
-def _trade_row(coin: str, side: str, px: str, pnl: float | None, when: str = "—") -> dict:
+def _trade_row(
+    coin: str, side: str, px: str, pnl: float | None, when: str = "—", lev: str = "—"
+) -> dict:
     if pnl is None:
         pnl_text, up = "—", True
     else:
@@ -305,7 +307,7 @@ def _trade_row(coin: str, side: str, px: str, pnl: float | None, when: str = "�
     return {
         "coin": coin,
         "side": side,
-        "lev": "—",
+        "lev": lev or "—",
         "px": px or "—",
         "pnl": pnl_text,
         "up": up,
@@ -437,6 +439,7 @@ def _card(leader: Leader, *, detail: bool = False) -> dict:
                 str(row.get("entry") or ""),
                 _float(row.get("upnl")),
                 _when_text(row),
+                str(row.get("lev") or "—"),
             )
         )
     history = []
@@ -451,29 +454,9 @@ def _card(leader: Leader, *, detail: bool = False) -> dict:
             )
         )
     if detail:
-        # 详情：优先用本地快讯信号，避免等慢速收益快照
+        # 平仓记录可用本地快讯补新；当前持仓必须用链上 clearinghouse，不能用信号反推
         signal_history = _history_from_signals(leader)
         history = _merge_history(signal_history, history)
-        latest_ms = (
-            TradeSignal.objects.filter(leader=leader)
-            .order_by("-time_ms")
-            .values_list("time_ms", flat=True)
-            .first()
-            or 0
-        )
-        snap_ms = 0
-        try:
-            snap_ms = int(leader.snapshot.fetched_at.timestamp() * 1000)
-        except Exception:  # noqa: BLE001
-            snap_ms = 0
-        if latest_ms and latest_ms >= snap_ms:
-            positions = _merge_positions(_positions_from_signals(leader), positions)
-            # 快照没有仓时，用信号条数粗算多空比
-            if not (stats.get("positions") or []) and positions:
-                long_n = sum(1 for row in positions if "多" in str(row.get("side")))
-                short_n = sum(1 for row in positions if "空" in str(row.get("side")))
-                long_notional = float(long_n)
-                short_notional = float(short_n)
     gross = long_notional + short_notional
     long_pct = (long_notional / gross * 100) if gross else 0.0
     if gross <= 0:
@@ -555,39 +538,30 @@ def wallet_detail(leader_id: str | int) -> dict | None:
     leader = Leader.objects.filter(pk=pk, enabled=True).select_related("snapshot").first()
     if leader is None:
         return None
-    # 持仓/平仓优先读本地快讯信号（WebSocket 已入库）；收益曲线仍用快照。
-    # 快照过旧时后台补刷，不堵住详情接口。
+    # 持仓以链上为准：超过约 45 秒就同步全量刷新，避免用旧快照或信号反推出错。
     snap = None
     try:
         snap = leader.snapshot
     except Exception:  # noqa: BLE001
         snap = None
-    stale = snap is None or (timezone.now() - snap.fetched_at).total_seconds() >= 120
+    stale = snap is None or (timezone.now() - snap.fetched_at).total_seconds() >= 45
     if stale:
+        try:
+            from plaza.services import refresh_leader
 
-        def _bg_refresh(leader_id: int = pk) -> None:
+            refresh_leader(leader, full=True)
+            leader = Leader.objects.filter(pk=pk, enabled=True).select_related("snapshot").first()
+            if leader is None:
+                return None
             try:
-                from plaza.services import refresh_leader
-
-                row = Leader.objects.filter(pk=leader_id, enabled=True).first()
-                if row is not None:
-                    refresh_leader(row, full=True)
-            except Exception as exc:  # noqa: BLE001
-                print(f"详情后台刷新 {leader_id} 失败: {exc}", flush=True)
-
-        threading.Thread(target=_bg_refresh, name=f"wallet-refresh-{pk}", daemon=True).start()
+                snap = leader.snapshot
+            except Exception:  # noqa: BLE001
+                snap = None
+        except Exception as exc:  # noqa: BLE001
+            print(f"详情同步刷新 {pk} 失败: {exc}", flush=True)
     card = _card(leader, detail=True)
-    latest_ms = (
-        TradeSignal.objects.filter(leader=leader)
-        .order_by("-time_ms")
-        .values_list("time_ms", flat=True)
-        .first()
-        or 0
-    )
     stamp = ""
-    if latest_ms:
-        stamp = _when_from_ms(int(latest_ms))
-    elif snap is not None:
+    if snap is not None:
         try:
             stamp = timezone.localtime(snap.fetched_at).strftime("%m-%d %H:%M:%S")
         except Exception:  # noqa: BLE001
