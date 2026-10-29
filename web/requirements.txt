@@ -6,3 +6,4 @@ websocket-client>=1.8
 certifi>=2024.0
 cryptography>=42.0
 eth-account>=0.13
+edge-tts>=6.1,<8

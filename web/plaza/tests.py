@@ -507,6 +507,8 @@ class ScopePageTests(TestCase):
         preview = self.client.post("/api/tape/test/")
         self.assertEqual(preview.json()["event"]["id"], recent.id)
         self.assertEqual(TradeSignal.objects.count(), before)
+        denied = self.client.get("/api/tts/", {"q": "测试"})
+        self.assertEqual(denied.status_code, 403)
 
     def test_admin_login_does_not_show_on_frontend(self):
         User.objects.create_superuser("admin", "admin@example.com", "long-enough-pass")

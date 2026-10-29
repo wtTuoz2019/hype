@@ -204,6 +204,25 @@ def tape_test(request):
     return JsonResponse({"event": event_dict(rows[0]), "pro": True, "subs": subscriptions(request)})
 
 
+@require_GET
+def tts_audio(request):
+    """Pro 试听/播报用的中文语音 mp3。不走浏览器 speechSynthesis。"""
+    if not is_pro(request):
+        return JsonResponse({"message": "语音播报仅限 Pro"}, status=403)
+    text = (request.GET.get("q") or "").strip()
+    if not text:
+        return JsonResponse({"message": "缺少文本"}, status=400)
+    try:
+        from .tts import synthesize
+
+        data = synthesize(text)
+    except Exception as exc:  # noqa: BLE001 — 前端可降级
+        return JsonResponse({"message": f"语音合成失败：{exc}"}, status=502)
+    resp = HttpResponse(data, content_type="audio/mpeg")
+    resp["Cache-Control"] = "private, max-age=3600"
+    return resp
+
+
 @require_POST
 def membership(request):
     set_pro(request, bool(_body(request).get("pro")))
