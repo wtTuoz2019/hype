@@ -256,23 +256,6 @@ function alertFor(row){
   speak(msg);
   if('Notification' in window && Notification.permission === 'granted') new Notification('聪明钱包开单提醒', {body:msg});
 }
-async function simulate(){
-  if(live){
-    var data = await postJSON('/api/tape/test/', {});
-    if(data.event){
-      if(!seen[data.event.id]){ events.unshift(data.event); seen[data.event.id] = true; }
-      render();
-      alertFor(data.event);
-    } else feedback(data.message || '免费用户不会即时收到这条新开单。');
-    return;
-  }
-  var wallet = wallets[Math.floor(Math.random() * wallets.length)];
-  var symbols = ['BTC','ETH','SOL'];
-  var acts = ['开多','开空','加多','平空'];
-  var row = {id:Date.now(), time:new Date().toLocaleTimeString('zh-CN',{hour12:false}), symbol:symbols[Math.floor(Math.random()*symbols.length)], act:acts[Math.floor(Math.random()*acts.length)], wallet:wallet.id, amount:Math.round((150000+Math.random()*3200000)/1000)*1000};
-  if(pro()){ events.unshift(row); render(); alertFor(row); }
-  else feedback('模拟产生一条新信号。免费用户不会即时收到推送，需等待延迟更新；升级 Pro 可开启播报。');
-}
 function testVoice(){
   unlockVoice();
   if(!pro()){ location.href = '/pricing/?need=alert'; return; }
