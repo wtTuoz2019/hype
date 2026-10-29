@@ -486,6 +486,7 @@ class ScopePageTests(TestCase):
         detail = self.client.get(f"/api/wallet/?id={leader.id}").json()["wallet"]
         self.assertEqual(detail["positions"][0]["coin"], "BTC")
         self.assertEqual(detail["history"][0]["side"], "平空")
+        self.assertIn("when", detail["history"][0])
 
         self.client.post("/api/membership/", data=json.dumps({"pro": True}), content_type="application/json")
         pro_ids = [row["id"] for row in self.client.get("/api/tape/").json()["events"]]

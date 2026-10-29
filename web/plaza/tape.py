@@ -275,7 +275,24 @@ def _side_from_dir(direction: str) -> str:
     return text or "—"
 
 
-def _trade_row(coin: str, side: str, px: str, pnl: float) -> dict:
+def _when_text(row: dict) -> str:
+    if row.get("when"):
+        return str(row["when"])
+    try:
+        when_ms = int(row.get("time") or 0)
+    except (TypeError, ValueError):
+        return "—"
+    if when_ms <= 0:
+        return "—"
+    try:
+        return datetime.fromtimestamp(when_ms / 1000, tz=timezone.get_current_timezone()).strftime(
+            "%m-%d %H:%M:%S"
+        )
+    except (TypeError, ValueError, OSError):
+        return "—"
+
+
+def _trade_row(coin: str, side: str, px: str, pnl: float, when: str = "—") -> dict:
     return {
         "coin": coin,
         "side": side,
@@ -283,6 +300,7 @@ def _trade_row(coin: str, side: str, px: str, pnl: float) -> dict:
         "px": px or "—",
         "pnl": _money(pnl),
         "up": pnl >= 0,
+        "when": when or "—",
     }
 
 
@@ -310,7 +328,13 @@ def _card(leader: Leader, *, detail: bool = False) -> dict:
         else:
             short_notional += notional
         positions.append(
-            _trade_row(str(row.get("coin") or ""), "开多" if size >= 0 else "开空", str(row.get("entry") or ""), _float(row.get("upnl")))
+            _trade_row(
+                str(row.get("coin") or ""),
+                "开多" if size >= 0 else "开空",
+                str(row.get("entry") or ""),
+                _float(row.get("upnl")),
+                _when_text(row),
+            )
         )
     history = []
     for row in stats.get("closes") or []:
@@ -320,6 +344,7 @@ def _card(leader: Leader, *, detail: bool = False) -> dict:
                 _side_from_dir(str(row.get("dir") or "")),
                 str(row.get("px") or ""),
                 _float(row.get("pnl")),
+                _when_text(row),
             )
         )
     gross = long_notional + short_notional
