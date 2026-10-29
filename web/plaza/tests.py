@@ -646,7 +646,7 @@ class ScopePageTests(TestCase):
         self.assertEqual(denied.status_code, 403)
 
     def test_countdown_follows_real_signal_delay(self):
-        from plaza.tape import FREE_DELAY
+        from plaza.tape import FREE_DELAY, PRO_DELAY
 
         leader = Leader.objects.create(name="倒计时", address="0x" + "cd" * 20, enabled=True)
         now_ms = int(time.time() * 1000)
@@ -671,6 +671,37 @@ class ScopePageTests(TestCase):
         TradeSignal.objects.all().delete()
         empty = self.client.get("/api/tape/?events=0").json()
         self.assertIsNone(empty["next_visible_at"])
+
+        # 活跃行情：应以最新一条起算，而不是贴着 cutoff 的最早一条（否则永远只剩几秒）
+        TradeSignal.objects.create(
+            leader=leader,
+            sig_id="old-edge",
+            time_ms=now_ms - (PRO_DELAY - 5) * 1000,
+            coin="ETH",
+            action="open",
+            side="long",
+            label="开多",
+            delta_szi="1",
+            px="1000",
+        )
+        TradeSignal.objects.create(
+            leader=leader,
+            sig_id="fresh-open",
+            time_ms=now_ms - 3 * 1000,
+            coin="BTC",
+            action="open",
+            side="long",
+            label="开多",
+            delta_szi="1",
+            px="1000",
+        )
+        session = self.client.session
+        session["tape_pro"] = True
+        session.save()
+        pro_feed = self.client.get("/api/tape/?events=0").json()
+        pro_left = pro_feed["next_visible_at"] - int(time.time())
+        self.assertGreater(pro_left, 50)
+        self.assertLessEqual(pro_left, PRO_DELAY)
 
     def test_today_focus_not_swamped_by_recent_adds(self):
         leader = Leader.objects.create(name="焦点钱包", address="0x" + "ef" * 20, enabled=True)

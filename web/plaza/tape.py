@@ -115,13 +115,18 @@ def _cutoff_ms(request) -> int:
 
 
 def next_visible_at(request) -> int | None:
-    """下一条仍在延迟窗里的信号，何时会对当前身份可见（unix 秒）。没有排队则 None。"""
+    """最新一条仍在延迟窗里的信号，何时可见（unix 秒）。
+
+    必须用最新而非最早：活跃行情下最早一条几乎总贴着 cutoff，
+    倒计时会一直停在几秒，无法体现 Pro 1 分钟 / 免费 30 分钟的真实延迟。
+    没有排队则 None。
+    """
     delay = _delay_sec(request)
     now = timezone.now()
     cutoff_ms = int((now - timedelta(seconds=delay)).timestamp() * 1000)
     row = (
         TradeSignal.objects.filter(leader__enabled=True, time_ms__gt=cutoff_ms)
-        .order_by("time_ms", "id")
+        .order_by("-time_ms", "-id")
         .only("time_ms")
         .first()
     )

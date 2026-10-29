@@ -173,18 +173,21 @@ function syncCountdownFrom(data){
 function tickCountdown(){
   var box = $('#sync-countdown');
   if(!box) return;
+  var delay = delaySeconds();
   var at = live && live.next_visible_at != null ? Number(live.next_visible_at) : NaN;
   if(!Number.isFinite(at) || at <= 0){
     // 当前延迟窗里没有排队信号
     box.textContent = '--:--';
-    box.title = '当前没有等待可见的新开单';
+    box.title = '当前没有等待可见的新开单（' + (pro() ? 'Pro 延迟约 1 分钟' : '免费延迟约 30 分钟') + '）';
     return;
   }
   var left = Math.max(0, Math.ceil(at - Date.now() / 1000));
+  // 保护：服务端异常时也不要显示超过规则延迟
+  if(left > delay) left = delay;
   box.textContent = formatCountdown(left);
   box.title = left > 0
-    ? ('下一条开单约 ' + formatCountdown(left) + ' 后可见')
-    : '下一条开单即将可见';
+    ? ('最新开单约 ' + formatCountdown(left) + ' 后可见（' + (pro() ? 'Pro 约 1 分钟' : '免费约 30 分钟') + '）')
+    : '最新开单即将可见';
 }
 function selectFilter(name, el){
   filter = name;
