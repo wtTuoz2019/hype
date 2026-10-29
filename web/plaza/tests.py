@@ -487,6 +487,21 @@ class ScopePageTests(TestCase):
         self.assertEqual(detail["positions"][0]["coin"], "BTC")
         self.assertEqual(detail["history"][0]["side"], "平空")
         self.assertIn("when", detail["history"][0])
+        # 本地快讯平仓应优先于慢速快照
+        TradeSignal.objects.create(
+            leader=leader,
+            sig_id="live-close",
+            time_ms=now_ms - 5_000,
+            coin="SOL",
+            action="close",
+            side="long",
+            label="平多",
+            szi="0",
+            px="120",
+        )
+        live_detail = self.client.get(f"/api/wallet/?id={leader.id}").json()["wallet"]
+        self.assertEqual(live_detail["history"][0]["side"], "平多")
+        self.assertEqual(live_detail["history"][0]["coin"], "SOL")
 
         self.client.post("/api/membership/", data=json.dumps({"pro": True}), content_type="application/json")
         pro_ids = [row["id"] for row in self.client.get("/api/tape/").json()["events"]]
@@ -507,8 +522,8 @@ class ScopePageTests(TestCase):
         preview = self.client.post("/api/tape/test/")
         self.assertEqual(preview.json()["event"]["id"], recent.id)
         self.assertEqual(TradeSignal.objects.count(), before)
-        denied = self.client.get("/api/tts/", {"q": "测试"})
-        self.assertEqual(denied.status_code, 403)
+        self.client.post("/api/membership/", data=json.dumps({"pro": False}), content_type="application/json")
+        self.assertEqual(self.client.get("/api/tts/", {"q": "测试"}).status_code, 403)
 
     def test_admin_login_does_not_show_on_frontend(self):
         User.objects.create_superuser("admin", "admin@example.com", "long-enough-pass")
