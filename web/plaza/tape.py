@@ -16,10 +16,15 @@ PRO_DELAY = 60
 
 _CARD_LOCK = threading.Lock()
 _CARD_CACHE: dict = {"rev": "", "at": 0.0, "rows": []}
-_CARD_TTL = 45.0
+_CARD_TTL = 60.0
 _TODAY_LOCK = threading.Lock()
 _TODAY_CACHE: dict = {}
-_TODAY_TTL = 20.0
+_TODAY_TTL = 30.0
+# 详情页：缺快照/未 full 才阻塞拉链；普通过期只后台补，避免打开页面打爆 API。
+_DETAIL_SYNC_SEC = 180.0
+_DETAIL_BG_SEC = 90.0
+_DETAIL_WARMING: set[int] = set()
+_DETAIL_WARM_LOCK = threading.Lock()
 
 
 def front_profile(request):
@@ -476,6 +481,34 @@ def wallet_cards(*, force: bool = False) -> list[dict]:
     return list(rows)
 
 
+def _warm_detail_async(leader_id: int) -> None:
+    """后台补一次 full 快照，不阻塞详情页。"""
+    with _DETAIL_WARM_LOCK:
+        if leader_id in _DETAIL_WARMING:
+            return
+        _DETAIL_WARMING.add(leader_id)
+
+    def work() -> None:
+        from django.db import close_old_connections
+
+        close_old_connections()
+        try:
+            from plaza.models import Leader
+            from plaza.services import refresh_leader
+
+            leader = Leader.objects.filter(pk=leader_id, enabled=True).first()
+            if leader is not None:
+                refresh_leader(leader, full=True)
+        except Exception as exc:  # noqa: BLE001
+            print(f"详情后台刷新 {leader_id} 失败: {exc}", flush=True)
+        finally:
+            close_old_connections()
+            with _DETAIL_WARM_LOCK:
+                _DETAIL_WARMING.discard(leader_id)
+
+    threading.Thread(target=work, name=f"detail-warm-{leader_id}", daemon=True).start()
+
+
 def wallet_detail(leader_id: str | int) -> dict | None:
     ensure_leaders()
     try:
@@ -485,14 +518,15 @@ def wallet_detail(leader_id: str | int) -> dict | None:
     leader = Leader.objects.filter(pk=pk, enabled=True).select_related("snapshot").first()
     if leader is None:
         return None
-    # 持仓/平仓以链上为准：超过约 20 秒同步全量刷新，尽量贴近 Hyperbot。
+    # 持仓/平仓数据源仍是链上；刷新节奏偏省：缺数据才同步拉，其余读缓存。
     snap = None
     try:
         snap = leader.snapshot
     except Exception:  # noqa: BLE001
         snap = None
-    stale = snap is None or (timezone.now() - snap.fetched_at).total_seconds() >= 20
-    if stale or not getattr(snap, "full", False):
+    age = None if snap is None else (timezone.now() - snap.fetched_at).total_seconds()
+    need_sync = snap is None or not getattr(snap, "full", False) or (age is not None and age >= _DETAIL_SYNC_SEC)
+    if need_sync:
         try:
             from plaza.services import refresh_leader
 
@@ -506,6 +540,8 @@ def wallet_detail(leader_id: str | int) -> dict | None:
                 snap = None
         except Exception as exc:  # noqa: BLE001
             print(f"详情同步刷新 {pk} 失败: {exc}", flush=True)
+    elif age is not None and age >= _DETAIL_BG_SEC:
+        _warm_detail_async(pk)
     card = _card(leader, detail=True)
     stamp = ""
     if snap is not None:

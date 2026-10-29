@@ -9,11 +9,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import timedelta
 
 _STARTED = False
-_REFRESH_SEC = 20
+# 收益/持仓不要求秒级：拉长间隔，少占 Hyperliquid 与本机线程。
+_REFRESH_SEC = 60
 _HOT_SEC = 6 * 60 * 60
-_REFRESH_WORKERS = 4
-_FULL_PER_CYCLE = 8
-_LIGHT_PER_CYCLE = 24
+_REFRESH_WORKERS = 2
+_FULL_PER_CYCLE = 4
+_LIGHT_PER_CYCLE = 12
+_FULL_AGE = timedelta(minutes=12)
+_LIGHT_AGE = timedelta(minutes=4)
 
 
 def refresh_due() -> None:
@@ -34,9 +37,9 @@ def refresh_due() -> None:
         except LeaderSnapshot.DoesNotExist:
             snap = None
         age = None if snap is None else now - snap.fetched_at
-        if snap is None or age >= timedelta(minutes=5):
+        if snap is None or not snap.full or age >= _FULL_AGE:
             due_full.append((leader, True, age or timedelta(days=999)))
-        elif age >= timedelta(seconds=110):
+        elif age >= _LIGHT_AGE:
             due_light.append((leader, False, age))
         else:
             _paint(snap)
@@ -98,9 +101,9 @@ def _refresh_loop() -> None:
             count = Leader.objects.filter(enabled=True).count()
         except Exception:
             count = 0
-        wait = _REFRESH_SEC if count <= 40 else min(90, _REFRESH_SEC + count // 4)
+        wait = _REFRESH_SEC if count <= 40 else min(180, _REFRESH_SEC + count // 3)
         elapsed = time.time() - started
-        time.sleep(max(5.0, wait - elapsed))
+        time.sleep(max(15.0, wait - elapsed))
 
 
 def _hot_loop() -> None:
