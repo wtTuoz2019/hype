@@ -125,6 +125,8 @@ TELEGRAM_NOTIFY_LABELS = os.environ.get("TELEGRAM_NOTIFY_LABELS", "")  # 空=全
 # Pro 资格群：默认复用推送群；私密群务必填邀请链接
 TELEGRAM_PRO_CHAT_ID = os.environ.get("TELEGRAM_PRO_CHAT_ID", "")
 TELEGRAM_PRO_INVITE_URL = os.environ.get("TELEGRAM_PRO_INVITE_URL", "")
+# 跟单 API 白名单提示用的服务器出口 IP（写入交易所 IP 限制）
+COPY_API_WHITELIST_IP = os.environ.get("COPY_API_WHITELIST_IP", "")
 LOGIN_REDIRECT_URL = "/"
 LOGOUT_REDIRECT_URL = "/"
 

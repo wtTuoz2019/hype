@@ -2,7 +2,7 @@
 {% block title %}交易所{% endblock %}
 {% block body %}
   <h1>交易所账户</h1>
-  <p class="note">支持币安和 Gate 的合约密钥。保存后只留密文，页面以后只看密钥后四位。主密钥不在这个页面上。</p>
+  <p class="note">支持币安和 Gate 的合约密钥。保存后只留密文，页面以后只看密钥后四位。前台用户请到「个人中心」配置；API 须开启合约交易、关闭提现，并把服务器出口 IP（COPY_API_WHITELIST_IP）写入白名单。</p>
   <div class="card">
     <h2>添加</h2>
     {% if error %}<p class="err">{{ error }}</p>{% endif %}

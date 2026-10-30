@@ -23,11 +23,11 @@
 <main>
   <div class="eyebrow">ACCOUNT</div>
   <h1>个人中心</h1>
-  <p class="sub">查看登录身份、会员状态和已订阅的聪明钱包。</p>
+  <p class="sub">管理登录身份、会员状态、交易所 API，以及要跟单的聪明钱包。</p>
 
   <section class="panel pad account-guest hidden" id="account-guest">
     <h2>还没有登录</h2>
-    <p class="sub" style="margin-bottom:16px">登录后可同步 Pro 状态、订阅钱包，并在多端保持同一账号。</p>
+    <p class="sub" style="margin-bottom:16px">登录后可同步 Pro、订阅钱包，并配置币安 / Gate 跟单密钥。</p>
     <button class="btn" type="button" onclick="openTelegramLogin()">Telegram / OKX 登录</button>
   </section>
 
@@ -75,22 +75,233 @@
       </div>
       <div id="account-subs" class="account-subs"></div>
     </section>
+
+    <section class="panel pad" style="margin-top:16px" id="copy-section">
+      <div class="topline">
+        <h2 style="margin:0">跟单 · 交易所 API</h2>
+        <span class="tiny" id="copy-rules-short">支持币安 / Gate 合约</span>
+      </div>
+      <div class="notice" id="copy-ip-box" style="margin:12px 0">加载白名单提示…</div>
+      <div class="two" style="gap:14px;margin-top:8px">
+        <div class="copy-hint-card" id="hint-binance"></div>
+        <div class="copy-hint-card" id="hint-gate"></div>
+      </div>
+
+      <h3 class="copy-h3">添加 API 密钥</h3>
+      <form class="copy-form" id="copy-account-form" onsubmit="return saveExchangeAccount(event)">
+        <label>备注名
+          <input name="name" maxlength="40" placeholder="例如 币安主号" autocomplete="off">
+        </label>
+        <label>交易所
+          <select name="venue" required>
+            <option value="binance">币安 U 本位</option>
+            <option value="gate">Gate 永续</option>
+          </select>
+        </label>
+        <label>API Key
+          <input name="apiKey" required autocomplete="off" placeholder="至少 16 位，无空格">
+        </label>
+        <label>API Secret
+          <input name="apiSecret" type="password" required autocomplete="new-password" placeholder="至少 16 位，无空格">
+        </label>
+        <button class="btn" type="submit">保存密钥（仅存密文）</button>
+        <p class="tiny" id="copy-account-msg"></p>
+      </form>
+
+      <div id="copy-accounts" class="account-subs" style="margin-top:14px"></div>
+
+      <h3 class="copy-h3">设置跟单</h3>
+      <p class="tiny">开始跟单后只跟之后的新开单，不补他已有仓位。可先在上方添加并启用密钥。</p>
+      <form class="copy-form copy-form-follow" id="copy-follow-form" onsubmit="return startCopyFollow(event)">
+        <label>跟踪钱包
+          <select name="leaderId" id="copy-leader-select" required>
+            <option value="">选择钱包</option>
+          </select>
+        </label>
+        <label>下单账户
+          <select name="accountId" id="copy-account-select" required>
+            <option value="">选择已启用的 API</option>
+          </select>
+        </label>
+        <button class="btn" type="submit">开始跟单</button>
+        <p class="tiny" id="copy-follow-msg"></p>
+      </form>
+      <div id="copy-follows" class="account-subs" style="margin-top:14px"></div>
+
+      <h3 class="copy-h3">最近跟单记录</h3>
+      <div id="copy-logs" class="account-subs"></div>
+      <p class="tiny" id="copy-rules-full" style="margin-top:12px"></p>
+    </section>
   </div>
 
-  <p class="footer">个人中心仅展示前台登录账号 · 后台 admin 不会出现在这里</p>
+  <p class="footer">密钥仅存服务端密文 · 页面只显示后四位 · 跟单有亏损风险</p>
 </main>
 <script src="telegram-auth.js"></script>
 <script src="app.js"></script>
 <script>
 (function(){
   var live = window.ALPHASCOPE || null;
+  var copyState = {accounts:[], follows:[], logs:[], leaders:[], meta:null};
+
   function esc(v){ return String(v||'').replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];}); }
   function walletById(id){
     var list = (live && live.wallets) || [];
     for(var i=0;i<list.length;i++){ if(String(list[i].id)===String(id)) return list[i]; }
     return null;
   }
-  function paint(){
+  function csrf(){
+    var m = document.cookie.match(/(?:^|; )csrftoken=([^;]+)/);
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+  function postJSON(url, body){
+    return fetch(url, {
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-CSRFToken':csrf()},
+      body:JSON.stringify(body||{}),
+      credentials:'same-origin'
+    }).then(function(res){ return res.json().then(function(data){ data.ok = res.ok; data.status = res.status; return data; }); });
+  }
+
+  function paintHints(){
+    var meta = copyState.meta || {};
+    var box = document.getElementById('copy-ip-box');
+    if(box){
+      var ip = meta.whitelistIp || '';
+      box.innerHTML = ip
+        ? ('<b>服务器出口 IP（务必写入 API 白名单）：</b><code class="copy-ip">'+esc(ip)+'</code><div class="tiny" style="margin-top:6px">'+esc(meta.whitelistHint||'')+'</div>')
+        : esc(meta.whitelistHint || '请向管理员索取服务器出口 IP，并写入币安 / Gate 的 API IP 白名单。');
+    }
+    var rules = document.getElementById('copy-rules-full');
+    if(rules) rules.textContent = meta.rules || '';
+    var short = document.getElementById('copy-rules-short');
+    if(short) short.textContent = '按权益比例跟 · 详见下方风控说明';
+    (meta.venues||[]).forEach(function(v){
+      var el = document.getElementById(v.id==='gate'?'hint-gate':'hint-binance');
+      if(!el) return;
+      el.innerHTML = '<strong>'+esc(v.name)+' · 权限要求</strong><ul>'+(v.permissions||[]).map(function(p){return '<li>'+esc(p)+'</li>';}).join('')+'</ul>';
+    });
+  }
+
+  function paintAccounts(){
+    var box = document.getElementById('copy-accounts');
+    var sel = document.getElementById('copy-account-select');
+    var rows = copyState.accounts || [];
+    if(sel){
+      sel.innerHTML = '<option value="">选择已启用的 API</option>' + rows.filter(function(r){return r.enabled;}).map(function(r){
+        return '<option value="'+r.id+'">'+esc(r.venueLabel)+' · '+esc(r.name)+' ****'+esc(r.keyLast4)+'</option>';
+      }).join('');
+    }
+    if(!box) return;
+    if(!rows.length){
+      box.innerHTML = '<div class="empty" style="padding:18px">还没有交易所密钥。按上方权限说明创建 API 后再保存。</div>';
+      return;
+    }
+    box.innerHTML = rows.map(function(r){
+      return '<div class="account-sub-row copy-row"><div><strong>'+esc(r.name)+'</strong><small>'+esc(r.venueLabel)+' · ****'+esc(r.keyLast4)+(r.halted?' · 已熔断':'')+'</small></div><div class="copy-row-actions"><button type="button" class="btn secondary" onclick="toggleExchangeAccount('+r.id+')">'+(r.enabled?'停用':'启用')+'</button><button type="button" class="btn outline" onclick="deleteExchangeAccount('+r.id+')">删除</button></div></div>';
+    }).join('');
+  }
+
+  function paintFollows(){
+    var box = document.getElementById('copy-follows');
+    var leaderSel = document.getElementById('copy-leader-select');
+    var leaders = copyState.leaders || [];
+    if(leaderSel){
+      leaderSel.innerHTML = '<option value="">选择钱包</option>' + leaders.map(function(l){
+        return '<option value="'+esc(l.id)+'">'+esc(l.name)+' · '+esc(l.address)+'</option>';
+      }).join('');
+    }
+    if(!box) return;
+    var rows = (copyState.follows||[]).filter(function(f){return f.active;});
+    if(!rows.length){
+      box.innerHTML = '<div class="empty" style="padding:18px">当前没有进行中的跟单。</div>';
+      return;
+    }
+    box.innerHTML = rows.map(function(f){
+      return '<div class="account-sub-row copy-row"><div><strong>'+esc(f.leaderName)+'</strong><small>'+esc(f.leaderAddress)+'<br>账户：'+esc(f.accountLabel)+'</small></div><div class="copy-row-actions"><a class="btn secondary" href="/wallet/?id='+encodeURIComponent(f.leaderId)+'">详情</a><button type="button" class="btn outline" onclick="stopCopyFollow('+f.id+')">停止跟单</button></div></div>';
+    }).join('');
+  }
+
+  function paintLogs(){
+    var box = document.getElementById('copy-logs');
+    if(!box) return;
+    var rows = copyState.logs || [];
+    if(!rows.length){
+      box.innerHTML = '<div class="empty" style="padding:18px">还没有跟单执行记录。</div>';
+      return;
+    }
+    box.innerHTML = rows.map(function(r){
+      return '<div class="account-sub-row"><div><strong>'+esc(r.leader)+' · '+esc(r.coin)+'</strong><small>'+esc(r.when)+' · '+esc(r.status)+' · qty '+esc(r.qty)+'</small></div><span class="tiny">'+esc(r.detail)+'</span></div>';
+    }).join('');
+  }
+
+  function paintCopy(){
+    paintHints();
+    paintAccounts();
+    paintFollows();
+    paintLogs();
+  }
+
+  async function loadCopy(){
+    try{
+      var res = await fetch('/api/copy/', {credentials:'same-origin'});
+      var data = await res.json();
+      if(!res.ok){
+        document.getElementById('copy-ip-box').textContent = data.message || '无法加载跟单配置';
+        return;
+      }
+      copyState = data;
+      paintCopy();
+    }catch(e){
+      document.getElementById('copy-ip-box').textContent = '跟单接口加载失败';
+    }
+  }
+
+  window.saveExchangeAccount = async function(ev){
+    ev.preventDefault();
+    var form = ev.target;
+    var msg = document.getElementById('copy-account-msg');
+    msg.textContent = '保存中…';
+    var data = await postJSON('/api/copy/accounts/', {
+      name: form.name.value,
+      venue: form.venue.value,
+      apiKey: form.apiKey.value,
+      apiSecret: form.apiSecret.value
+    });
+    if(!data.ok){ msg.textContent = data.message || '保存失败'; return false; }
+    form.reset();
+    msg.textContent = '已保存（只显示后四位）';
+    await loadCopy();
+    return false;
+  };
+  window.toggleExchangeAccount = async function(id){
+    await postJSON('/api/copy/accounts/'+id+'/toggle/', {});
+    await loadCopy();
+  };
+  window.deleteExchangeAccount = async function(id){
+    if(!confirm('删除后无法恢复密钥明文，确认删除？')) return;
+    await postJSON('/api/copy/accounts/'+id+'/delete/', {});
+    await loadCopy();
+  };
+  window.startCopyFollow = async function(ev){
+    ev.preventDefault();
+    var form = ev.target;
+    var msg = document.getElementById('copy-follow-msg');
+    msg.textContent = '提交中…';
+    var data = await postJSON('/api/copy/follows/', {
+      leaderId: form.leaderId.value,
+      accountId: form.accountId.value
+    });
+    msg.textContent = data.ok ? '已开始跟单' : (data.message || '失败');
+    if(data.ok) await loadCopy();
+    return false;
+  };
+  window.stopCopyFollow = async function(id){
+    if(!confirm('停止跟单并尝试平掉本系统归属仓？')) return;
+    await postJSON('/api/copy/follows/stop/', {id:id});
+    await loadCopy();
+  };
+
+  function paintProfile(){
     var user = live && live.user;
     var guest = document.getElementById('account-guest');
     var body = document.getElementById('account-body');
@@ -123,17 +334,18 @@
     var box = document.getElementById('account-subs');
     if(!subs.length){
       box.innerHTML = '<div class="empty" style="padding:24px">还没有订阅钱包。去排行榜点「订阅提醒」即可。</div>';
-      return;
+    } else {
+      box.innerHTML = subs.map(function(id){
+        var w = walletById(id);
+        var name = w ? w.name : ('钱包 #' + id);
+        var addr = w ? w.address : '';
+        var href = '/wallet/?id=' + encodeURIComponent(id);
+        return '<a class="account-sub-row" href="'+href+'"><div><strong>'+esc(name)+'</strong><small>'+esc(addr)+'</small></div><span>查看 →</span></a>';
+      }).join('');
     }
-    box.innerHTML = subs.map(function(id){
-      var w = walletById(id);
-      var name = w ? w.name : ('钱包 #' + id);
-      var addr = w ? w.address : '';
-      var href = '/wallet/?id=' + encodeURIComponent(id);
-      return '<a class="account-sub-row" href="'+href+'"><div><strong>'+esc(name)+'</strong><small>'+esc(addr)+'</small></div><span>查看 →</span></a>';
-    }).join('');
+    loadCopy();
   }
-  document.addEventListener('DOMContentLoaded', paint);
+  document.addEventListener('DOMContentLoaded', paintProfile);
 })();
 </script>
 </body>

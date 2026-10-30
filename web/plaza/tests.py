@@ -211,6 +211,69 @@ class ExchangeTests(TestCase):
         follow.refresh_from_db()
         self.assertFalse(follow.active)
 
+    @override_settings(COPY_API_WHITELIST_IP="203.0.113.10")
+    def test_front_copy_api_binance_and_gate(self):
+        user = self._user("front-copy")
+        Profile.objects.create(user=user, telegram_id=556677)
+        overview = self.client.get("/api/copy/")
+        self.assertEqual(overview.status_code, 200)
+        body = overview.json()
+        self.assertEqual(body["meta"]["whitelistIp"], "203.0.113.10")
+        self.assertIn("币安", body["meta"]["venues"][0]["name"])
+        self.assertTrue(any("白名单" in tip for tip in body["meta"]["venues"][0]["permissions"]))
+
+        add = self.client.post(
+            "/api/copy/accounts/",
+            data=json.dumps(
+                {
+                    "venue": "binance",
+                    "name": "前台币安",
+                    "apiKey": "FRONTBINANCEKEY123456",
+                    "apiSecret": "FRONTBINANCESECRET123456",
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(add.status_code, 200)
+        self.assertEqual(add.json()["account"]["keyLast4"], "3456")
+        self.assertNotIn("FRONTBINANCEKEY", add.content.decode())
+
+        gate = self.client.post(
+            "/api/copy/accounts/",
+            data=json.dumps(
+                {
+                    "venue": "gate",
+                    "name": "前台Gate",
+                    "apiKey": "FRONTGATEKEY12345678",
+                    "apiSecret": "FRONTGATESECRET12345678",
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(gate.status_code, 200)
+        account_id = add.json()["account"]["id"]
+        leader = Leader.objects.create(name="跟单目标", address="0x" + "66" * 20, enabled=True)
+        started = self.client.post(
+            "/api/copy/follows/",
+            data=json.dumps({"leaderId": leader.id, "accountId": account_id}),
+            content_type="application/json",
+        )
+        self.assertEqual(started.status_code, 200)
+        self.assertTrue(started.json()["follow"]["active"])
+        follow = Follow.objects.get(user=user, leader=leader)
+        stopped = self.client.post(
+            "/api/copy/follows/stop/",
+            data=json.dumps({"id": follow.id}),
+            content_type="application/json",
+        )
+        self.assertEqual(stopped.status_code, 200)
+        follow.refresh_from_db()
+        self.assertFalse(follow.active)
+
+    def test_copy_api_requires_front_login(self):
+        anon = self.client.get("/api/copy/")
+        self.assertEqual(anon.status_code, 401)
+
 
 class _FakeVenue:
     def __init__(self):

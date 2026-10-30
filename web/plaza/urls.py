@@ -1,8 +1,6 @@
 from django.urls import path
 
-from . import views
-
-from . import scope_pages
+from . import copy_api, scope_pages, views
 
 urlpatterns = [
     path("", lambda request: scope_pages.render_scope(request, "home"), name="home"),
@@ -17,6 +15,12 @@ urlpatterns = [
     path("api/wallet/", scope_pages.wallet_api, name="wallet_api"),
     path("api/membership/", scope_pages.membership, name="membership"),
     path("api/subscribe/", scope_pages.subscribe, name="subscribe"),
+    path("api/copy/", copy_api.copy_overview, name="copy_overview"),
+    path("api/copy/accounts/", copy_api.copy_accounts, name="copy_accounts"),
+    path("api/copy/accounts/<int:account_id>/toggle/", copy_api.copy_account_toggle, name="copy_account_toggle"),
+    path("api/copy/accounts/<int:account_id>/delete/", copy_api.copy_account_delete, name="copy_account_delete"),
+    path("api/copy/follows/", copy_api.copy_follow_start, name="copy_follow_start"),
+    path("api/copy/follows/stop/", copy_api.copy_follow_stop, name="copy_follow_stop"),
     path("auth/telegram/callback", scope_pages.telegram_callback, name="telegram_callback"),
     path("auth/telegram/start/", scope_pages.telegram_start, name="telegram_start"),
     path("auth/telegram/", scope_pages.telegram_login, name="telegram_login"),

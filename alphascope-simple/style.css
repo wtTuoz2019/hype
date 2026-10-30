@@ -119,6 +119,19 @@ header{background:#fff;border-bottom-color:var(--line);box-shadow:none}
 .account-sub-row small{display:block;font-size:12px;color:#64748b;margin-top:3px;word-break:break-all}
 .account-sub-row span{font-size:12px;color:#2563eb;white-space:nowrap}
 .account-sub-row:hover{border-color:#93c5fd;background:#f8fbff}
+.copy-h3{font-size:15px;margin:22px 0 10px}
+.copy-hint-card{border:1px solid #e8eef5;border-radius:12px;padding:14px 16px;background:#f8fafc}
+.copy-hint-card strong{display:block;margin-bottom:8px;font-size:14px}
+.copy-hint-card ul{margin:0;padding-left:18px;color:#475569;font-size:13px;line-height:1.65}
+.copy-ip{display:inline-block;margin-left:6px;padding:2px 8px;border-radius:6px;background:#111827;color:#f8fafc;font-size:13px;letter-spacing:.3px}
+.copy-form{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px;align-items:end}
+.copy-form label{display:grid;gap:6px;font-size:12px;color:#64748b;font-weight:650}
+.copy-form input,.copy-form select{border:1px solid #dbe3ef;border-radius:9px;padding:10px 12px;font:inherit;color:#1e293b;background:#fff}
+.copy-form button{justify-self:start}
+.copy-form-follow{grid-template-columns:1.4fr 1fr auto}
+.copy-row{align-items:flex-start}
+.copy-row-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+@media(max-width:760px){.copy-form,.copy-form-follow{grid-template-columns:1fr}.copy-row-actions{width:100%}.copy-row-actions .btn{flex:1}}
 a.tg-user{cursor:pointer}
 a.tg-user:hover .tg-name{color:#2563eb}
 @media(max-width:620px){.account-profile-row{align-items:flex-start}.account-profile-row .btn{width:100%}}
