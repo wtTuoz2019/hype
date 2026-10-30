@@ -12,11 +12,13 @@ _STARTED = False
 # 收益/持仓不要求秒级：拉长间隔，少占 Hyperliquid 与本机线程。
 _REFRESH_SEC = 60
 _HOT_SEC = 6 * 60 * 60
+_PRO_CHECK_SEC = 6 * 60 * 60
 _REFRESH_WORKERS = 2
 _FULL_PER_CYCLE = 4
 _LIGHT_PER_CYCLE = 12
 _FULL_AGE = timedelta(minutes=12)
 _LIGHT_AGE = timedelta(minutes=4)
+_PRO_CHECK_BATCH = 40
 
 
 def refresh_due() -> None:
@@ -126,6 +128,51 @@ def _hot_loop() -> None:
         time.sleep(_HOT_SEC)
 
 
+def recheck_pro_members() -> dict:
+    """定期复检 Pro：已退群的收回权限，避免一次进群永久白嫖。"""
+    from plaza.models import Profile
+    from plaza.telegram_group import user_in_pro_group
+
+    revoked = 0
+    checked = 0
+    errors = 0
+    qs = (
+        Profile.objects.filter(is_pro=True, telegram_id__isnull=False)
+        .order_by("telegram_last_login_at", "id")[:_PRO_CHECK_BATCH]
+    )
+    for profile in qs:
+        checked += 1
+        ok, status = user_in_pro_group(int(profile.telegram_id))
+        if ok:
+            continue
+        # API 抖动不撤权；只有明确 left/kicked 才收回
+        if status in ("left", "kicked"):
+            profile.is_pro = False
+            profile.save(update_fields=["is_pro"])
+            revoked += 1
+        else:
+            errors += 1
+            print(f"Pro 复检跳过 {profile.telegram_id}: {status}", flush=True)
+    return {"checked": checked, "revoked": revoked, "errors": errors}
+
+
+def _pro_loop() -> None:
+    from django.db import close_old_connections
+
+    while True:
+        close_old_connections()
+        try:
+            result = recheck_pro_members()
+            print(
+                "Pro 入群复检 "
+                f"检查 {result['checked']} 收回 {result['revoked']} 异常 {result['errors']}",
+                flush=True,
+            )
+        except Exception as exc:
+            print(f"Pro 入群复检失败: {exc}", flush=True)
+        time.sleep(_PRO_CHECK_SEC)
+
+
 def start_monitor() -> None:
     global _STARTED
     if _STARTED:
@@ -151,6 +198,7 @@ def start_monitor() -> None:
         start_copy_worker()
         threading.Thread(target=_refresh_loop, name="hype-stats", daemon=True).start()
         threading.Thread(target=_hot_loop, name="hype-hot", daemon=True).start()
+        threading.Thread(target=_pro_loop, name="hype-pro", daemon=True).start()
         hub = SignalHub(debounce=3.0, as_json=False)
         hub.run()
 

@@ -14,7 +14,16 @@ from django.test import TestCase, override_settings
 from plaza.copy_plan import LotState, decide
 from plaza.hyperbot import sync_hot
 from plaza.copy_run import process_signal
-from plaza.models import CopyLog, CopyLot, ExchangeAccount, Follow, Leader, LeaderSnapshot, TradeSignal
+from plaza.models import (
+    CopyLog,
+    CopyLot,
+    ExchangeAccount,
+    Follow,
+    Leader,
+    LeaderSnapshot,
+    Profile,
+    TradeSignal,
+)
 from plaza.services import leader_view
 from plaza.vault import decrypt
 
@@ -505,7 +514,16 @@ class ScopePageTests(TestCase):
         self.assertEqual(live_detail["history"][0]["coin"], "ETH")
         self.assertNotEqual(live_detail["history"][0]["coin"], "SOL")
 
-        self.client.post("/api/membership/", data=json.dumps({"pro": True}), content_type="application/json")
+        user = User.objects.create_user("tg_pro_tape")
+        Profile.objects.create(user=user, telegram_id=90001, is_pro=False)
+        self.client.force_login(user)
+        with patch("plaza.telegram_group.user_in_pro_group", return_value=(True, "member")):
+            claim = self.client.post(
+                "/api/membership/",
+                data=json.dumps({"action": "claim"}),
+                content_type="application/json",
+            )
+        self.assertTrue(claim.json()["pro"])
         pro_ids = [row["id"] for row in self.client.get("/api/tape/").json()["events"]]
         self.assertIn(recent.id, pro_ids)
         self.assertNotIn(fresh.id, pro_ids)
@@ -534,6 +552,40 @@ class ScopePageTests(TestCase):
         self.assertContains(home, "Telegram 登录")
         self.assertContains(home, '"user": null')
         self.assertNotContains(home, "@admin")
+
+    @override_settings(TELEGRAM_PRO_INVITE_URL="https://t.me/+demo")
+    def test_pro_requires_telegram_group(self):
+        denied = self.client.post(
+            "/api/membership/",
+            data=json.dumps({"action": "claim"}),
+            content_type="application/json",
+        )
+        self.assertEqual(denied.status_code, 403)
+        self.assertEqual(denied.json()["need"], "login")
+
+        user = User.objects.create_user("tg_claim")
+        Profile.objects.create(user=user, telegram_id=7788)
+        self.client.force_login(user)
+        with patch("plaza.telegram_group.user_in_pro_group", return_value=(False, "left")):
+            out = self.client.post(
+                "/api/membership/",
+                data=json.dumps({"pro": True}),
+                content_type="application/json",
+            )
+        self.assertEqual(out.status_code, 403)
+        self.assertEqual(out.json()["need"], "group")
+        self.assertIn("t.me", out.json()["invite"])
+        self.assertFalse(Profile.objects.get(user=user).is_pro)
+
+        with patch("plaza.telegram_group.user_in_pro_group", return_value=(True, "member")):
+            ok = self.client.post(
+                "/api/membership/",
+                data=json.dumps({"action": "claim"}),
+                content_type="application/json",
+            )
+        self.assertEqual(ok.status_code, 200)
+        self.assertTrue(ok.json()["pro"])
+        self.assertTrue(Profile.objects.get(user=user).is_pro)
 
     @override_settings(TELEGRAM_BOT_TOKEN="123:ABC", TELEGRAM_BOT_USERNAME="AlphaScopeBot")
     def test_telegram_login_checks_signature(self):
@@ -714,9 +766,9 @@ class ScopePageTests(TestCase):
             delta_szi="1",
             px="1000",
         )
-        session = self.client.session
-        session["tape_pro"] = True
-        session.save()
+        user = User.objects.create_user("tg_pro_cd")
+        Profile.objects.create(user=user, telegram_id=90002, is_pro=True)
+        self.client.force_login(user)
         pro_feed = self.client.get("/api/tape/?events=0").json()
         pro_left = pro_feed["next_visible_at"] - int(time.time())
         self.assertGreater(pro_left, 50)

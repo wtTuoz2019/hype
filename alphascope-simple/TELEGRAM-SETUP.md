@@ -25,3 +25,15 @@
 3. `./deploy.sh`（会重启监控）。再执行：
    `./.venv/bin/python manage.py telegram_ping`
    群里应收到测试消息。之后 WebSocket 写入的新开单会自动推群。
+
+## 进群开通 Pro
+流程：Telegram 登录 → 加入会员群 → 「我已入群，开通 Pro」→ 服务端 `getChatMember` 通过后写 `Profile.is_pro`。
+
+1. 机器人进群并设为**管理员**（大群否则经常查不到成员）。
+2. `.env`：
+   ```
+   TELEGRAM_PRO_CHAT_ID=-100xxxxxxxxxx
+   TELEGRAM_PRO_INVITE_URL=https://t.me/+xxxxxxxx
+   ```
+   不配 `TELEGRAM_PRO_CHAT_ID` 时回退用 `TELEGRAM_NOTIFY_CHAT_ID`。
+3. 打开 `/pricing/` 按三步开通。后台约每 6 小时复检：明确退群会收回 Pro。

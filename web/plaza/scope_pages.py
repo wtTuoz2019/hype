@@ -17,6 +17,7 @@ from .tape import (
     FREE_DELAY,
     PRO_DELAY,
     adopt_session,
+    claim_pro_from_group,
     event_dict,
     front_profile,
     is_pro,
@@ -107,6 +108,8 @@ def _telegram_bot_id() -> str:
 
 
 def boot(request) -> dict:
+    from plaza.telegram_group import pro_invite_url
+
     rows = visible_events(request)
     pro = is_pro(request)
     return {
@@ -116,6 +119,7 @@ def boot(request) -> dict:
         "bot": settings.TELEGRAM_BOT_USERNAME,
         "botId": _telegram_bot_id(),
         "authUrl": request.build_absolute_uri("/auth/telegram/callback"),
+        "groupInvite": pro_invite_url(),
         "wallet_rev": wallet_rev(),
         "wallets": wallet_cards(),
         "events": [event_dict(row) for row in rows],
@@ -241,7 +245,22 @@ def tts_audio(request):
 
 @require_POST
 def membership(request):
-    set_pro(request, bool(_body(request).get("pro")))
+    body = _body(request)
+    want = body.get("pro")
+    action = str(body.get("action") or "").strip().lower()
+    if want is True or action in ("claim", "upgrade", "join"):
+        result = claim_pro_from_group(request)
+        status = 200 if result.get("pro") else 403
+        return JsonResponse(result, status=status)
+    if want is False or action in ("cancel", "downgrade"):
+        set_pro(request, False)
+        return JsonResponse(
+            {
+                "pro": False,
+                "subs": subscriptions(request),
+                "message": "已关闭 Pro。",
+            }
+        )
     return JsonResponse({"pro": is_pro(request), "subs": subscriptions(request)})
 
 

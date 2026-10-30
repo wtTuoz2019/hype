@@ -1,1 +1,37 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>会员中心 - AlphaScope</title><link rel="stylesheet" href="style.css"></head><body><header><nav class="nav"><a class="brand" href="index.html">● AlphaScope</a><div class="links"><a href="index.html" class="">开单快讯</a><a href="leaderboard.html">钱包排行榜</a><a href="analysis.html" class="">综合分析</a><a href="pricing.html" class="active">会员中心</a><a href="account.html">个人中心</a></div><div class="tg-account" id="tg-account"><button class="tg-login" type="button" onclick="openTelegramLogin()">Telegram 登录</button></div></nav></header><main><div class="eyebrow">SMART MONEY ALERTS</div><h1>会员中心</h1><p class="sub">核心差别只有两点：信息同步速度，以及能不能及时收到订阅钱包的开单提醒。</p><div class="notice hidden" id="need-note">订阅指定钱包并接收及时提醒属于 Pro 会员功能。</div><div class="two"><div class="panel pad"><span class="pill">免费版</span><h2 style="margin-top:16px">看懂钱包开单</h2><ul class="mini-list"><li>查看同样的开单快讯</li><li>查看钱包历史胜率</li><li><b>延迟约 30 分钟</b></li><li class="muted">不支持及时推送与订阅提醒</li></ul><button class="btn secondary" style="width:100%;margin-top:15px" onclick="downgrade()">切换免费演示</button></div><div class="panel pad highlight"><span class="pill">Pro 会员</span><h2 style="margin-top:16px">更早知道开单消息</h2><ul class="mini-list"><li>与免费版相同的情报内容</li><li>查看钱包历史胜率</li><li><b>约 1 分钟同步</b></li><li><b>指定钱包及时订阅提醒</b></li><li>新开单弹窗与语音提醒</li></ul><button class="btn" style="width:100%;margin-top:15px" onclick="upgrade();alert('已开启 Pro 演示，可以返回首页订阅钱包并模拟触发提醒。')">模拟开通 Pro（无需支付）</button></div></div><div class="notice">免费大约晚 30 分钟看到新开单，Pro 大约晚 1 分钟。会员状态记在服务器上。浏览器通知需要你授权。</div><p class="footer">历史胜率不代表未来表现 · 合约交易可能导致本金损失</p></main><script src="telegram-auth.js"></script><script src="app.js"></script></body></html>
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>会员中心 - AlphaScope</title><link rel="stylesheet" href="style.css"></head><body><header><nav class="nav"><a class="brand" href="index.html">● AlphaScope</a><div class="links"><a href="index.html" class="">开单快讯</a><a href="leaderboard.html">钱包排行榜</a><a href="analysis.html" class="">综合分析</a><a href="pricing.html" class="active">会员中心</a><a href="account.html">个人中心</a></div><div class="tg-account" id="tg-account"><button class="tg-login" type="button" onclick="openTelegramLogin()">Telegram 登录</button></div></nav></header><main><div class="eyebrow">SMART MONEY ALERTS</div><h1>会员中心</h1><p class="sub">暂时免费开通 Pro：用 Telegram 登录并加入我们的会员群即可。退群后会定期收回权限。</p><div class="notice hidden" id="need-note">订阅指定钱包并接收及时提醒属于 Pro 会员功能。</div><div class="notice hidden" id="pro-msg"></div><div class="two"><div class="panel pad"><span class="pill">免费版</span><h2 style="margin-top:16px">看懂钱包开单</h2><ul class="mini-list"><li>查看同样的开单快讯</li><li>查看钱包历史胜率</li><li><b>延迟约 30 分钟</b></li><li class="muted">不支持及时推送与订阅提醒</li></ul><button class="btn secondary" style="width:100%;margin-top:15px" onclick="downgrade()">关闭 Pro（如已开通）</button></div><div class="panel pad highlight"><span class="pill">Pro 会员</span><h2 style="margin-top:16px">进群即可开通</h2><ul class="mini-list"><li>与免费版相同的情报内容</li><li><b>约 1 分钟同步</b></li><li><b>指定钱包及时订阅提醒</b></li><li>新开单弹窗与语音提醒</li><li>须保持在会员群内</li></ul><ol class="mini-list" style="margin-top:12px"><li>Telegram 登录本站</li><li>加入会员群</li><li>点下方「我已入群，开通 Pro」</li></ol><div style="display:flex;flex-direction:column;gap:10px;margin-top:15px"><a class="btn secondary" id="join-group" href="#" target="_blank" rel="noopener" style="text-align:center;text-decoration:none">① 加入会员群</a><button class="btn" style="width:100%" onclick="claimPro()">② 我已入群，开通 Pro</button></div></div></div><div class="notice">免费大约晚 30 分钟看到新开单，Pro 大约晚 1 分钟。开通资格由服务器调用 Telegram 校验，是否在群以机器人查询结果为准。</div><p class="footer">历史胜率不代表未来表现 · 合约交易可能导致本金损失</p></main><script src="telegram-auth.js"></script><script src="app.js"></script><script>
+(function(){
+  var note=document.getElementById('need-note');
+  if(note && /need=alert/.test(location.search)) note.classList.remove('hidden');
+  function paintInvite(){
+    var link=document.getElementById('join-group');
+    if(!link) return;
+    var url=(typeof live!=='undefined' && live && live.groupInvite) || '';
+    if(url){ link.href=url; link.classList.remove('hidden'); }
+    else { link.href='#'; link.textContent='① 加入会员群（管理员尚未配置邀请链接）'; }
+  }
+  paintInvite();
+  setTimeout(paintInvite, 400);
+  setTimeout(paintInvite, 1200);
+  window.claimPro=async function(){
+    var box=document.getElementById('pro-msg');
+    if(!live || !live.user){
+      if(box){ box.classList.remove('hidden'); box.textContent='请先点右上角 Telegram 登录。'; }
+      if(typeof openTelegramLogin==='function') openTelegramLogin();
+      return;
+    }
+    var data=await postJSON('/api/membership/', {action:'claim'});
+    applyState(data);
+    shell();
+    if(typeof render==='function') render();
+    if(box){
+      box.classList.remove('hidden');
+      box.textContent=data.message || (data.pro?'Pro 已开通':'开通失败');
+      if(data.invite && data.need==='group'){
+        box.innerHTML=esc(data.message||'')+' <a href="'+esc(data.invite)+'" target="_blank" rel="noopener">打开群链接</a>';
+      }
+    }
+    paintInvite();
+    if(data.pro) alert('Pro 已开通，可以回首页订阅钱包。');
+  };
+})();
+</script></body></html>

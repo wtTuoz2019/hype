@@ -122,6 +122,9 @@ TELEGRAM_BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME", "")
 TELEGRAM_NOTIFY_CHAT_ID = os.environ.get("TELEGRAM_NOTIFY_CHAT_ID", "")
 TELEGRAM_SITE_URL = os.environ.get("TELEGRAM_SITE_URL", "https://p.c7.pro")
 TELEGRAM_NOTIFY_LABELS = os.environ.get("TELEGRAM_NOTIFY_LABELS", "")  # 空=全部；如 开多,开空,加多,加空
+# Pro 资格群：默认复用推送群；私密群务必填邀请链接
+TELEGRAM_PRO_CHAT_ID = os.environ.get("TELEGRAM_PRO_CHAT_ID", "")
+TELEGRAM_PRO_INVITE_URL = os.environ.get("TELEGRAM_PRO_INVITE_URL", "")
 LOGIN_REDIRECT_URL = "/"
 LOGOUT_REDIRECT_URL = "/"
 

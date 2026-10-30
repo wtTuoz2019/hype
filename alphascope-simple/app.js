@@ -41,8 +41,17 @@ function applyState(data){
   if(data.subs) live.subs = data.subs;
 }
 async function upgrade(){
-  if(live){ applyState(await postJSON('/api/membership/', {pro:true})); }
-  else localStorage.setItem('as_pro','1');
+  if(live){
+    if(!live.user){ if(typeof openTelegramLogin==='function') openTelegramLogin(); return; }
+    var data = await postJSON('/api/membership/', {action:'claim'});
+    applyState(data);
+    if(!data.ok || !data.pro){
+      if(data.need === 'group' && data.invite){ window.open(data.invite, '_blank', 'noopener'); }
+      alert(data.message || '开通失败：请先加入会员群后再试');
+    }
+  } else {
+    alert('请在线上站点用 Telegram 登录后开通 Pro');
+  }
   shell(); render(); if(typeof renderLeaderboard === 'function') renderLeaderboard();
 }
 async function downgrade(){

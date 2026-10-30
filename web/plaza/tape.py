@@ -38,10 +38,9 @@ def front_profile(request):
 
 
 def is_pro(request) -> bool:
+    """只认账号上的 is_pro（入群校验后写入），不再允许匿名 session 自称 Pro。"""
     profile = front_profile(request)
-    if profile is not None and profile.is_pro:
-        return True
-    return bool(request.session.get("tape_pro"))
+    return bool(profile is not None and profile.is_pro)
 
 
 def subscriptions(request) -> list[str]:
@@ -55,16 +54,20 @@ def subscriptions(request) -> list[str]:
 
 
 def set_pro(request, enabled: bool) -> None:
+    profile = front_profile(request)
+    if profile is None:
+        request.session["tape_pro"] = False
+        if not enabled:
+            request.session["tape_subs"] = []
+        request.session.modified = True
+        return
+    profile.is_pro = bool(enabled)
+    profile.save(update_fields=["is_pro"])
     request.session["tape_pro"] = bool(enabled)
     if not enabled:
         request.session["tape_subs"] = []
+        AlertSub.objects.filter(user=request.user).delete()
     request.session.modified = True
-    profile = front_profile(request)
-    if profile is not None:
-        profile.is_pro = bool(enabled)
-        profile.save(update_fields=["is_pro"])
-        if not enabled:
-            AlertSub.objects.filter(user=request.user).delete()
 
 
 def toggle_sub(request, code: str) -> list[str]:
@@ -94,13 +97,10 @@ def toggle_sub(request, code: str) -> list[str]:
 
 
 def adopt_session(request) -> None:
-    """Telegram 登录后把这次浏览里的会员和订阅记到账号上。"""
+    """Telegram 登录后把这次浏览里的订阅记到账号上。Pro 只能走入群校验，不从 session 提升。"""
     profile = front_profile(request)
     if profile is None:
         return
-    if request.session.get("tape_pro"):
-        profile.is_pro = True
-        profile.save(update_fields=["is_pro"])
     if profile.is_pro:
         for code in request.session.get("tape_subs") or []:
             leader = Leader.objects.filter(pk=code, enabled=True).first()
@@ -109,6 +109,49 @@ def adopt_session(request) -> None:
     request.session["tape_pro"] = profile.is_pro
     request.session["tape_subs"] = subscriptions(request)
     request.session.modified = True
+
+
+def claim_pro_from_group(request) -> dict:
+    """验 Telegram 群成员后开通 Pro。返回给前端的 JSON 字段。"""
+    from plaza.telegram_group import pro_invite_url, user_in_pro_group
+
+    profile = front_profile(request)
+    invite = pro_invite_url()
+    if profile is None:
+        return {
+            "pro": False,
+            "need": "login",
+            "message": "请先用 Telegram 登录，再用同一账号进群开通 Pro。",
+            "invite": invite,
+            "subs": subscriptions(request),
+        }
+    if not profile.telegram_id:
+        return {
+            "pro": False,
+            "need": "telegram",
+            "message": "当前是钱包登录。请先绑定 / 改用 Telegram 登录后再开通。",
+            "invite": invite,
+            "subs": subscriptions(request),
+        }
+    ok, status = user_in_pro_group(int(profile.telegram_id))
+    if not ok:
+        return {
+            "pro": False,
+            "need": "group",
+            "message": "还没检测到你在会员群里。请先加入群，再点开通。",
+            "status": status,
+            "invite": invite,
+            "subs": subscriptions(request),
+        }
+    set_pro(request, True)
+    return {
+        "pro": True,
+        "need": "",
+        "message": "已确认在群，Pro 已开通。",
+        "status": status,
+        "invite": invite,
+        "subs": subscriptions(request),
+    }
 
 
 def _delay_sec(request) -> int:
