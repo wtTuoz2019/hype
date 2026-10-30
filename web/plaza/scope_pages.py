@@ -107,11 +107,34 @@ def _telegram_bot_id() -> str:
     return token.split(":", 1)[0] if token else ""
 
 
+def _copy_boot(request) -> dict:
+    """跟单按钮用的轻量状态：已跟钱包 + 是否已配可用 API。"""
+    from plaza.models import ExchangeAccount, Follow
+
+    if front_profile(request) is None:
+        return {"follows": [], "hasCopyApi": False, "copyAccountId": None}
+    account = (
+        ExchangeAccount.objects.filter(user=request.user, enabled=True).order_by("id").first()
+    )
+    follows = [
+        str(item)
+        for item in Follow.objects.filter(user=request.user, active=True).values_list(
+            "leader_id", flat=True
+        )
+    ]
+    return {
+        "follows": follows,
+        "hasCopyApi": account is not None,
+        "copyAccountId": account.id if account else None,
+    }
+
+
 def boot(request) -> dict:
     from plaza.telegram_group import pro_invite_url
 
     rows = visible_events(request)
     pro = is_pro(request)
+    copy = _copy_boot(request)
     return {
         "pro": pro,
         "subs": subscriptions(request),
@@ -128,6 +151,9 @@ def boot(request) -> dict:
         "delay_sec": PRO_DELAY if pro else FREE_DELAY,
         "next_visible_at": next_visible_at(request),
         "poll_sec": 3,
+        "follows": copy["follows"],
+        "hasCopyApi": copy["hasCopyApi"],
+        "copyAccountId": copy["copyAccountId"],
     }
 
 

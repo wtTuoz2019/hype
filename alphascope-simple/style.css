@@ -131,7 +131,9 @@ header{background:#fff;border-bottom-color:var(--line);box-shadow:none}
 .copy-form-follow{grid-template-columns:1.4fr 1fr auto}
 .copy-row{align-items:flex-start}
 .copy-row-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
-@media(max-width:760px){.copy-form,.copy-form-follow{grid-template-columns:1fr}.copy-row-actions{width:100%}.copy-row-actions .btn{flex:1}}
+.rank-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end}
+.rank-actions .btn{white-space:nowrap}
+@media(max-width:760px){.copy-form,.copy-form-follow{grid-template-columns:1fr}.copy-row-actions{width:100%}.copy-row-actions .btn{flex:1}.rank-actions{width:100%}.rank-actions .btn{flex:1}}
 a.tg-user{cursor:pointer}
 a.tg-user:hover .tg-name{color:#2563eb}
 @media(max-width:620px){.account-profile-row{align-items:flex-start}.account-profile-row .btn{width:100%}}

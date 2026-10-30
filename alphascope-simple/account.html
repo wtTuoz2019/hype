@@ -110,22 +110,8 @@
 
       <div id="copy-accounts" class="account-subs" style="margin-top:14px"></div>
 
-      <h3 class="copy-h3">设置跟单</h3>
-      <p class="tiny">开始跟单后只跟之后的新开单，不补他已有仓位。可先在上方添加并启用密钥。</p>
-      <form class="copy-form copy-form-follow" id="copy-follow-form" onsubmit="return startCopyFollow(event)">
-        <label>跟踪钱包
-          <select name="leaderId" id="copy-leader-select" required>
-            <option value="">选择钱包</option>
-          </select>
-        </label>
-        <label>下单账户
-          <select name="accountId" id="copy-account-select" required>
-            <option value="">选择已启用的 API</option>
-          </select>
-        </label>
-        <button class="btn" type="submit">开始跟单</button>
-        <p class="tiny" id="copy-follow-msg"></p>
-      </form>
+      <h3 class="copy-h3">进行中的跟单</h3>
+      <p class="tiny">请在排行榜 / 快讯 / 钱包详情里点「跟单」。这里只展示已开启的跟单，并可停止。</p>
       <div id="copy-follows" class="account-subs" style="margin-top:14px"></div>
 
       <h3 class="copy-h3">最近跟单记录</h3>
@@ -184,13 +170,7 @@
 
   function paintAccounts(){
     var box = document.getElementById('copy-accounts');
-    var sel = document.getElementById('copy-account-select');
     var rows = copyState.accounts || [];
-    if(sel){
-      sel.innerHTML = '<option value="">选择已启用的 API</option>' + rows.filter(function(r){return r.enabled;}).map(function(r){
-        return '<option value="'+r.id+'">'+esc(r.venueLabel)+' · '+esc(r.name)+' ****'+esc(r.keyLast4)+'</option>';
-      }).join('');
-    }
     if(!box) return;
     if(!rows.length){
       box.innerHTML = '<div class="empty" style="padding:18px">还没有交易所密钥。按上方权限说明创建 API 后再保存。</div>';
@@ -203,17 +183,10 @@
 
   function paintFollows(){
     var box = document.getElementById('copy-follows');
-    var leaderSel = document.getElementById('copy-leader-select');
-    var leaders = copyState.leaders || [];
-    if(leaderSel){
-      leaderSel.innerHTML = '<option value="">选择钱包</option>' + leaders.map(function(l){
-        return '<option value="'+esc(l.id)+'">'+esc(l.name)+' · '+esc(l.address)+'</option>';
-      }).join('');
-    }
     if(!box) return;
     var rows = (copyState.follows||[]).filter(function(f){return f.active;});
     if(!rows.length){
-      box.innerHTML = '<div class="empty" style="padding:18px">当前没有进行中的跟单。</div>';
+      box.innerHTML = '<div class="empty" style="padding:18px">还没有跟单。开通 Pro 后，到排行榜钱包右侧点「跟单」即可。</div>';
       return;
     }
     box.innerHTML = rows.map(function(f){
@@ -281,19 +254,6 @@
     if(!confirm('删除后无法恢复密钥明文，确认删除？')) return;
     await postJSON('/api/copy/accounts/'+id+'/delete/', {});
     await loadCopy();
-  };
-  window.startCopyFollow = async function(ev){
-    ev.preventDefault();
-    var form = ev.target;
-    var msg = document.getElementById('copy-follow-msg');
-    msg.textContent = '提交中…';
-    var data = await postJSON('/api/copy/follows/', {
-      leaderId: form.leaderId.value,
-      accountId: form.accountId.value
-    });
-    msg.textContent = data.ok ? '已开始跟单' : (data.message || '失败');
-    if(data.ok) await loadCopy();
-    return false;
   };
   window.stopCopyFollow = async function(id){
     if(!confirm('停止跟单并尝试平掉本系统归属仓？')) return;

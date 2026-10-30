@@ -231,11 +231,22 @@ def copy_follow_start(request):
     except (TypeError, ValueError):
         return JsonResponse({"message": "参数无效"}, status=400)
     leader = Leader.objects.filter(pk=leader_id, enabled=True).first()
-    account = ExchangeAccount.objects.filter(pk=account_id, user=request.user, enabled=True).first()
+    account = None
+    if account_id:
+        account = ExchangeAccount.objects.filter(
+            pk=account_id, user=request.user, enabled=True
+        ).first()
+    if account is None:
+        account = (
+            ExchangeAccount.objects.filter(user=request.user, enabled=True).order_by("id").first()
+        )
     if leader is None:
         return JsonResponse({"message": "钱包不存在或已停用"}, status=404)
     if account is None:
-        return JsonResponse({"message": "请选择一个已启用的币安或 Gate 账户"}, status=400)
+        return JsonResponse(
+            {"message": "请先在个人中心配置并启用币安或 Gate API", "need": "api"},
+            status=400,
+        )
     armed = int(time.time() * 1000)
     row = Follow.objects.filter(user=request.user, leader=leader).first()
     if row is None:
@@ -247,7 +258,21 @@ def copy_follow_start(request):
         row.active = True
         row.armed_ms = armed
         row.save(update_fields=["account", "active", "armed_ms", "updated_at"])
-    return JsonResponse({"ok": True, "follow": _follow_row(row)})
+    follows = [
+        str(item)
+        for item in Follow.objects.filter(user=request.user, active=True).values_list(
+            "leader_id", flat=True
+        )
+    ]
+    return JsonResponse(
+        {
+            "ok": True,
+            "follow": _follow_row(row),
+            "follows": follows,
+            "hasCopyApi": True,
+            "copyAccountId": account.id,
+        }
+    )
 
 
 @require_POST
@@ -274,4 +299,19 @@ def copy_follow_stop(request):
         row.active = False
         row.save(update_fields=["active", "updated_at"])
         enqueue_flatten(row.id)
-    return JsonResponse({"ok": True, "follow": _follow_row(row)})
+    follows = [
+        str(item)
+        for item in Follow.objects.filter(user=request.user, active=True).values_list(
+            "leader_id", flat=True
+        )
+    ]
+    account = ExchangeAccount.objects.filter(user=request.user, enabled=True).order_by("id").first()
+    return JsonResponse(
+        {
+            "ok": True,
+            "follow": _follow_row(row),
+            "follows": follows,
+            "hasCopyApi": account is not None,
+            "copyAccountId": account.id if account else None,
+        }
+    )

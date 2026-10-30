@@ -39,6 +39,51 @@ function applyState(data){
   if(!live || !data) return;
   if('pro' in data) live.pro = !!data.pro;
   if(data.subs) live.subs = data.subs;
+  if(data.follows) live.follows = data.follows.map(String);
+  if('hasCopyApi' in data) live.hasCopyApi = !!data.hasCopyApi;
+  if('copyAccountId' in data) live.copyAccountId = data.copyAccountId || null;
+}
+function loggedIn(){ return !!(live && live.user); }
+function copyFollows(){ return live ? (live.follows || []).map(String) : []; }
+function isCopying(id){ return copyFollows().indexOf(String(id)) >= 0; }
+function canShowCopyBtn(){ return loggedIn() && pro(); }
+function copyBtnHTML(walletId){
+  if(!canShowCopyBtn()) return '';
+  var on = isCopying(walletId);
+  return '<button class="btn ' + (on ? 'secondary' : 'outline') + '" type="button" onclick="toggleCopy(\'' + walletId + '\')">' + (on ? '✓ 跟单中' : '跟单') + '</button>';
+}
+async function toggleCopy(id){
+  if(!live){ alert('请在线上站点使用跟单'); return; }
+  if(!live.user){ if(typeof openTelegramLogin==='function') openTelegramLogin(); return; }
+  if(!pro()){ location.href = '/pricing/?need=alert'; return; }
+  id = String(id);
+  if(isCopying(id)){
+    if(!confirm('停止跟单这个钱包？')) return;
+    var stopped = await postJSON('/api/copy/follows/stop/', {leaderId: id});
+    if(!stopped.ok){ alert(stopped.message || '停止失败'); return; }
+    applyState(stopped);
+  } else {
+    if(!live.hasCopyApi || !live.copyAccountId){
+      alert('还没有配置可用的交易所 API。请先到个人中心添加币安或 Gate 密钥（并设置 IP 白名单）。');
+      location.href = '/account/#copy-section';
+      return;
+    }
+    if(!confirm('开始跟单这个钱包？只会跟此后新开单，不补已有仓。')) return;
+    var started = await postJSON('/api/copy/follows/', {leaderId: id, accountId: live.copyAccountId});
+    if(!started.ok){
+      if(started.need === 'api' || /API|密钥|账户/i.test(String(started.message || ''))){
+        alert(started.message || '请先配置 API');
+        location.href = '/account/#copy-section';
+        return;
+      }
+      alert(started.message || '跟单失败');
+      return;
+    }
+    applyState(started);
+  }
+  render();
+  if(typeof renderLeaderboard === 'function') renderLeaderboard();
+  if(typeof updateDetailCopyButton === 'function') updateDetailCopyButton();
 }
 async function upgrade(){
   if(live){
@@ -71,7 +116,7 @@ function eventHTML(row){
   if(!wallet) return '';
   var side = String(row.act).includes('空') ? 'short' : 'long';
   var subscribed = subscriptions().indexOf(wallet.id) >= 0;
-  return '<div class="event"><span class="clock">' + esc(row.time) + '</span><div class="event-main"><div class="line"><span class="action ' + side + '">' + esc(row.act) + '</span><span class="symbol">' + esc(row.symbol) + ' 合约</span></div><div class="name"><a href="/wallet/?id=' + encodeURIComponent(wallet.id) + '">' + esc(wallet.name) + '</a> <span class="tiny">' + esc(wallet.address) + '</span></div><div class="meta">历史平仓胜率 ' + win(wallet) + ' · ' + wallet.wins + '/' + wallet.total + ' 笔' + (row.amount ? ' · 开单 ' + formatAmount(row.amount) : '') + '</div></div><div class="right"><button class="btn ' + (subscribed ? 'secondary' : 'outline') + '" onclick="toggleSub(\'' + wallet.id + '\')">' + (subscribed ? '✓ 已订阅' : '订阅提醒') + '</button></div></div>';
+  return '<div class="event"><span class="clock">' + esc(row.time) + '</span><div class="event-main"><div class="line"><span class="action ' + side + '">' + esc(row.act) + '</span><span class="symbol">' + esc(row.symbol) + ' 合约</span></div><div class="name"><a href="/wallet/?id=' + encodeURIComponent(wallet.id) + '">' + esc(wallet.name) + '</a> <span class="tiny">' + esc(wallet.address) + '</span></div><div class="meta">历史平仓胜率 ' + win(wallet) + ' · ' + wallet.wins + '/' + wallet.total + ' 笔' + (row.amount ? ' · 开单 ' + formatAmount(row.amount) : '') + '</div></div><div class="right rank-actions"><button class="btn ' + (subscribed ? 'secondary' : 'outline') + '" onclick="toggleSub(\'' + wallet.id + '\')">' + (subscribed ? '✓ 已订阅' : '订阅提醒') + '</button>' + copyBtnHTML(wallet.id) + '</div></div>';
 }
 async function toggleSub(id){
   if(!pro()){ location.href = '/pricing/?need=alert'; return; }
@@ -564,9 +609,13 @@ function renderLeaderboard(){
     var metrics = wallet.waiting
       ? '<p class="rank-foot">收益正在后台刷新</p>'
       : '<div class="rank-metrics"><div><small>30天收益率</small><strong class="' + (wallet.roi >= 0 ? 'positive' : 'risk') + '">' + pctText(wallet.roi) + '</strong></div><div><small>历史胜率</small><strong>' + Number(wallet.win).toFixed(1) + '%</strong></div><div><small>已平仓笔数</small><strong>' + wallet.total + ' 笔</strong></div><div><small>30天最大回撤</small><strong class="risk">' + Number(wallet.dd).toFixed(1) + '%</strong></div></div><div class="rank-foot">30天盈亏：' + moneyText(wallet.pnl) + '</div>';
-    return '<article class="rank-card"><div class="rank-head"><span class="rank-number">#' + (index + 1) + '</span><div class="rank-identity"><strong><a href="/wallet/?id=' + wallet.id + '">' + wallet.name + '</a></strong><small>' + wallet.address + '</small></div><button class="btn ' + (sub ? 'secondary' : 'outline') + '" onclick="toggleSub(\'' + wallet.id + '\')">' + (sub ? '✓ 已订阅' : '＋ 订阅提醒') + '</button></div>' + metrics + '</article>';
+    return '<article class="rank-card"><div class="rank-head"><span class="rank-number">#' + (index + 1) + '</span><div class="rank-identity"><strong><a href="/wallet/?id=' + wallet.id + '">' + wallet.name + '</a></strong><small>' + wallet.address + '</small></div><div class="rank-actions"><button class="btn ' + (sub ? 'secondary' : 'outline') + '" onclick="toggleSub(\'' + wallet.id + '\')">' + (sub ? '✓ 已订阅' : '＋ 订阅提醒') + '</button>' + copyBtnHTML(wallet.id) + '</div></div>' + metrics + '</article>';
   }).join('') || '<div class="empty">没有找到匹配的钱包</div>';
   var hint = document.getElementById('rank-plan');
-  if(hint) hint.textContent = pro() ? 'Pro 已开启：点击订阅后，可在首页使用“仅订阅钱包播报”' : '普通用户可查看所有榜单；订阅即时提醒需升级 Pro';
+  if(hint){
+    if(pro() && loggedIn()) hint.textContent = 'Pro 已开启：可订阅提醒；旁边「跟单」需先在个人中心配置币安/Gate API';
+    else if(pro()) hint.textContent = 'Pro 已开启：点击订阅后，可在首页使用“仅订阅钱包播报”';
+    else hint.textContent = '普通用户可查看所有榜单；订阅即时提醒与跟单需升级 Pro';
+  }
 }
 document.addEventListener('DOMContentLoaded', renderLeaderboard);
