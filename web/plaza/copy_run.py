@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import queue
-import sys
 import threading
-from pathlib import Path
 
 from django.db import close_old_connections
 from django.utils import timezone
@@ -297,9 +295,6 @@ def real_venue(account: ExchangeAccount):
     cached = _VENUES.get(key)
     if cached is not None:
         return cached
-    future = Path(__file__).resolve().parents[3] / "wjfuture"
-    if str(future) not in sys.path:
-        sys.path.insert(0, str(future))
     api_key = decrypt(account.key_enc)
     api_secret = decrypt(account.secret_enc)
     if account.venue == ExchangeAccount.VENUE_GATE:
@@ -312,7 +307,7 @@ def real_venue(account: ExchangeAccount):
 
 class BinanceVenue:
     def __init__(self, api_key: str, api_secret: str):
-        from binance_futures_client import BinanceFuturesClient
+        from .exchanges import BinanceFuturesClient
 
         self.client = BinanceFuturesClient(api_key, api_secret)
         self._ready: set[str] = set()
@@ -361,13 +356,13 @@ class BinanceVenue:
 
 class GateVenue:
     def __init__(self, api_key: str, api_secret: str):
-        from gate_futures_client import GateFuturesClient
+        from .exchanges import GateFuturesClient
 
         self.client = GateFuturesClient(api_key, api_secret)
         self._ready: set[str] = set()
 
     def _contract(self, base: str) -> str:
-        from gate_futures_client import symbol_to_contract
+        from .exchanges import symbol_to_contract
 
         return symbol_to_contract(f"{base}USDT")
 
