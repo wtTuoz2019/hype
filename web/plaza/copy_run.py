@@ -178,12 +178,30 @@ def process_signal(signal_id: int, venue_for=None) -> None:
             _log(follow, base_coin(signal.coin), "error", 0, str(exc)[:200])
 
 
+def _venue_supports(venue, coin: str) -> bool:
+    """交易所没有该合约时跳过，不报错硬跟（如 HIP-3 xyz: 映射后在币安/Gate 不存在）。"""
+    check = getattr(venue, "supports", None)
+    if not callable(check):
+        return True
+    try:
+        return bool(check(coin))
+    except Exception:
+        return False
+
+
 def _copy_one(follow: Follow, signal: TradeSignal, leader_eq: float, venue) -> None:
     coin, delta, now, px = _numbers(signal)
     if not coin:
         return
+    if not _venue_supports(venue, coin):
+        _log(follow, coin, "skip", 0, "交易所无此合约，跳过")
+        return
     follower_eq = float(venue.equity() or 0)
-    mark = float(venue.mark(coin) or 0)
+    try:
+        mark = float(venue.mark(coin) or 0)
+    except Exception:
+        _log(follow, coin, "skip", 0, "交易所无此合约，跳过")
+        return
     halted = _halted(follow.account, follower_eq)
     row, state = _lot_state(follow, coin)
     if fuse_hit(state, mark, follower_eq):
@@ -201,7 +219,11 @@ def _copy_one(follow: Follow, signal: TradeSignal, leader_eq: float, venue) -> N
         decision.detail = "触发保护平仓"
         _run_intents(follow, coin, venue, state, decision, px or mark)
         return
-    min_qty, min_notional = venue.limits(coin)
+    try:
+        min_qty, min_notional = venue.limits(coin)
+    except Exception:
+        _log(follow, coin, "skip", 0, "交易所无此合约，跳过")
+        return
     decision = decide(
         action=signal.action,
         side=signal.side,
@@ -311,6 +333,25 @@ class BinanceVenue:
 
         self.client = BinanceFuturesClient(api_key, api_secret)
         self._ready: set[str] = set()
+        self._missing: set[str] = set()
+
+    def supports(self, base: str) -> bool:
+        symbol = f"{base}USDT".upper()
+        if symbol in self._ready:
+            return True
+        if symbol in self._missing:
+            return False
+        try:
+            info = self.client.exchange_info(symbol)
+            syms = info.get("symbols") or []
+            if not syms or str(syms[0].get("status") or "").upper() == "BREAK":
+                self._missing.add(symbol)
+                return False
+            self.client._load_symbol_filters(symbol)
+            return True
+        except Exception:
+            self._missing.add(symbol)
+            return False
 
     def equity(self) -> float:
         data = self.client._signed("GET", "/fapi/v2/account")
@@ -360,11 +401,32 @@ class GateVenue:
 
         self.client = GateFuturesClient(api_key, api_secret)
         self._ready: set[str] = set()
+        self._missing: set[str] = set()
 
     def _contract(self, base: str) -> str:
         from .exchanges import symbol_to_contract
 
         return symbol_to_contract(f"{base}USDT")
+
+    def supports(self, base: str) -> bool:
+        contract = self._contract(base)
+        if contract in self._ready:
+            return True
+        if contract in self._missing:
+            return False
+        try:
+            info = self.client.get_contract(contract)
+            if not isinstance(info, dict) or not info.get("name"):
+                self._missing.add(contract)
+                return False
+            # 已下架/不可交易
+            if str(info.get("in_delisting") or "").lower() in ("true", "1"):
+                self._missing.add(contract)
+                return False
+            return True
+        except Exception:
+            self._missing.add(contract)
+            return False
 
     def equity(self) -> float:
         acc = self.client._futures.list_futures_accounts(self.client._settle)

@@ -276,10 +276,14 @@ class ExchangeTests(TestCase):
 
 
 class _FakeVenue:
-    def __init__(self):
+    def __init__(self, *, missing: set[str] | None = None):
         self.orders = []
         self.eq = 10_000.0
         self.mk = 40.0
+        self.missing = set(missing or ())
+
+    def supports(self, base):
+        return str(base).upper() not in {item.upper() for item in self.missing}
 
     def equity(self):
         return self.eq
@@ -429,6 +433,46 @@ class CopyPlanTests(TestCase):
         self.assertFalse(venue.orders[0][3])
         lot = CopyLot.objects.get(follow=follow, coin="HYPE")
         self.assertAlmostEqual(lot.qty, 100 * (10_000 / 700_000), places=6)
+
+    def test_worker_skips_unsupported_exchange_contract(self):
+        leader = Leader.objects.create(name="主号", address="0x" + "77" * 20)
+        LeaderSnapshot.objects.create(
+            leader=leader,
+            payload='{"periods":{"all":{"equity":700000}}}',
+            full=True,
+        )
+        account = ExchangeAccount.objects.create(
+            user=User.objects.create_user("copier2", password="long-enough-pass"),
+            venue="binance",
+            name="币安",
+            key_last4="EFGH",
+            key_fp="fp-copy-2",
+            key_enc="x",
+            secret_enc="y",
+        )
+        follow = Follow.objects.create(
+            user=account.user, leader=leader, account=account, active=True, armed_ms=1
+        )
+        TradeSignal.objects.create(
+            leader=leader,
+            sig_id="xyz-iren",
+            time_ms=10_000,
+            coin="xyz:IREN",
+            action="open",
+            side="long",
+            label="开多",
+            delta_szi="100",
+            szi="100",
+            px="26",
+        )
+        venue = _FakeVenue(missing={"IREN"})
+        process_signal(TradeSignal.objects.get(sig_id="xyz-iren").id, venue_for=lambda account: venue)
+        self.assertEqual(venue.orders, [])
+        self.assertFalse(CopyLot.objects.filter(follow=follow).exists())
+        log = CopyLog.objects.get(follow=follow)
+        self.assertEqual(log.status, "skip")
+        self.assertIn("无此合约", log.detail)
+        self.assertEqual(log.coin, "IREN")
 
 
 class HotSyncTests(TestCase):
