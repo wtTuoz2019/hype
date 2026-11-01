@@ -6,8 +6,14 @@
     var link=document.getElementById('join-group');
     if(!link) return;
     var url=(typeof live!=='undefined' && live && live.groupInvite) || '';
-    if(url){ link.href=url; link.classList.remove('hidden'); }
-    else { link.href='#'; link.textContent='① 加入会员群（管理员尚未配置邀请链接）'; }
+    if(url){
+      link.href=url;
+      link.textContent='① 加入会员群';
+      link.classList.remove('hidden');
+    } else {
+      link.href='#';
+      link.textContent='① 加入会员群（管理员尚未配置邀请链接）';
+    }
   }
   paintInvite();
   setTimeout(paintInvite, 400);

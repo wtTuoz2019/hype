@@ -7,6 +7,32 @@ HYPE_ROOT = BASE_DIR.parent
 if str(HYPE_ROOT) not in sys.path:
     sys.path.insert(0, str(HYPE_ROOT))
 
+
+def _load_dotenv(path: Path) -> None:
+    """读 web/.env 进进程环境。宝塔只 HUP、或没 source .env 时也能吃到配置。"""
+    if not path.is_file():
+        return
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if not key:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+        # 已有环境变量优先（shell/宝塔面板注入的不覆盖）
+        os.environ.setdefault(key, value)
+
+
+_load_dotenv(BASE_DIR / ".env")
+
 SECRET_PATH = BASE_DIR / "data" / "django.secret"
 SECRET_PATH.parent.mkdir(parents=True, exist_ok=True)
 if SECRET_PATH.exists():

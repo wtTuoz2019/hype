@@ -23,7 +23,10 @@ def pro_chat_id() -> str:
 
 
 def pro_invite_url() -> str:
-    url = (getattr(settings, "TELEGRAM_PRO_INVITE_URL", "") or "").strip()
+    import os
+
+    # 优先读当前进程环境（改 .env 并完整重启后立刻生效），再回退 settings
+    url = (os.environ.get("TELEGRAM_PRO_INVITE_URL") or getattr(settings, "TELEGRAM_PRO_INVITE_URL", "") or "").strip()
     if url:
         return url
     chat = pro_chat_id()
