@@ -599,11 +599,11 @@ function setBoardTerm(value){ boardTerm = value.trim().toLowerCase(); renderLead
 function renderLeaderboard(){
   var root = document.getElementById('leaderboard');
   if(!root) return;
+  // 后端已筛：手工钱包直接进榜；热门须 30 日 ROI>10%
   var data = wallets.filter(function(wallet){
-    if ((wallet.name + wallet.address).toLowerCase().indexOf(boardTerm) < 0) return false;
-    if (wallet.waiting) return false;
-    return Number(wallet.roi) > 10;
+    return (wallet.name + wallet.address).toLowerCase().indexOf(boardTerm) >= 0;
   }).slice().sort(function(a, b){
+    if(!!a.waiting !== !!b.waiting) return a.waiting ? 1 : -1;
     if(boardOrder === 'dd') return a.dd - b.dd;
     return b[boardOrder] - a[boardOrder];
   });

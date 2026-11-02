@@ -162,7 +162,9 @@ def board(request):
             roi_value = 0.0
         from plaza.hyperbot import roi_ok
 
-        if bool(stats.get("waiting")) or not roi_ok(roi_value):
+        manual = not (leader.source or "").strip()
+        waiting = bool(stats.get("waiting"))
+        if not manual and (waiting or not roi_ok(roi_value)):
             continue
         win = stats.get("win_rate")
         try:
@@ -173,7 +175,7 @@ def board(request):
             {
                 "leader": leader,
                 "pack": pack,
-                "waiting": False,
+                "waiting": waiting,
                 "roi_value": roi_value,
                 "win_value": win_value,
                 "win_rate": f"{win_value * 100:.1f}%" if win_value >= 0 else "-",

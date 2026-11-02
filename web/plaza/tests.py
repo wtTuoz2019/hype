@@ -600,9 +600,13 @@ class ScopePageTests(TestCase):
         self.assertEqual(card["roi"], 12.0)
         self.assertNotIn("positions", card)
         self.assertGreater(card["dd"], 0)
-        # 30 日 ROI≤10% 不进排行榜卡片
-        loser = Leader.objects.create(name="亏损甲", address="0x" + "fe" * 20, enabled=True)
-        weak = Leader.objects.create(name="低收益", address="0x" + "fd" * 20, enabled=True)
+        # 热门源：30 日 ROI≤10% 不进排行榜；手工源仍会展示
+        loser = Leader.objects.create(
+            name="亏损甲", address="0x" + "fe" * 20, enabled=True, source="hyperbot"
+        )
+        weak = Leader.objects.create(
+            name="低收益", address="0x" + "fd" * 20, enabled=True, source="hyperbot"
+        )
         LeaderSnapshot.objects.create(
             leader=loser,
             payload=json.dumps(

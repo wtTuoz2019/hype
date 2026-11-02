@@ -27,6 +27,18 @@ class LeaderAdmin(admin.ModelAdmin):
     list_editable = ("enabled",)
     ordering = ("-id",)
 
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        # 后台新增/启用后后台预热收益，否则前端要等监控轮询才有快照
+        if obj.enabled:
+            import threading
+
+            from plaza.views import _warm_leader
+
+            threading.Thread(
+                target=_warm_leader, args=(obj.id,), name=f"admin-warm-{obj.id}", daemon=True
+            ).start()
+
 
 @admin.register(TradeSignal)
 class TradeSignalAdmin(admin.ModelAdmin):
