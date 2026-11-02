@@ -600,8 +600,9 @@ class ScopePageTests(TestCase):
         self.assertEqual(card["roi"], 12.0)
         self.assertNotIn("positions", card)
         self.assertGreater(card["dd"], 0)
-        # 负收益钱包不进排行榜卡片
+        # 30 日 ROI≤10% 不进排行榜卡片
         loser = Leader.objects.create(name="亏损甲", address="0x" + "fe" * 20, enabled=True)
+        weak = Leader.objects.create(name="低收益", address="0x" + "fd" * 20, enabled=True)
         LeaderSnapshot.objects.create(
             leader=loser,
             payload=json.dumps(
@@ -615,10 +616,24 @@ class ScopePageTests(TestCase):
             ),
             full=True,
         )
+        LeaderSnapshot.objects.create(
+            leader=weak,
+            payload=json.dumps(
+                {
+                    "periods": {"30d": {"pnl": 50, "roi": 0.08, "equity": 1000, "curve": []}},
+                    "positions": [],
+                    "closes": [],
+                    "win_rate": 0.5,
+                    "close_count": 4,
+                }
+            ),
+            full=True,
+        )
         listed_pos = self.client.get("/api/tape/?wallets=1&events=0").json()
         ids = [row["id"] for row in listed_pos["wallets"]]
-        self.assertIn(str(leader.id), ids)
+        self.assertIn(str(leader.id), ids)  # 12% 保留
         self.assertNotIn(str(loser.id), ids)
+        self.assertNotIn(str(weak.id), ids)  # 8% 去掉
         detail = self.client.get(f"/api/wallet/?id={leader.id}").json()["wallet"]
         self.assertEqual(detail["positions"][0]["coin"], "BTC")
         self.assertEqual(detail["history"][0]["side"], "平空")

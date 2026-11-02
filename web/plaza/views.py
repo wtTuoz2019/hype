@@ -160,7 +160,9 @@ def board(request):
             roi_value = float(period.get("roi") or 0)
         except (TypeError, ValueError):
             roi_value = 0.0
-        if bool(stats.get("waiting")) or roi_value <= 0:
+        from plaza.hyperbot import roi_ok
+
+        if bool(stats.get("waiting")) or not roi_ok(roi_value):
             continue
         win = stats.get("win_rate")
         try:

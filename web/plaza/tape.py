@@ -500,7 +500,9 @@ def _card(leader: Leader, *, detail: bool = False) -> dict:
 
 
 def wallet_cards(*, force: bool = False) -> list[dict]:
-    """列表/排行榜用瘦卡片，不含持仓曲线。只展示 30 日 ROI > 0 的钱包。"""
+    """列表/排行榜用瘦卡片，不含持仓曲线。只展示 30 日 ROI > 10% 的钱包。"""
+    from plaza.hyperbot import MIN_ROI_30D
+
     ensure_leaders()
     rev = wallet_rev()
     now = time.monotonic()
@@ -513,12 +515,13 @@ def wallet_cards(*, force: bool = False) -> list[dict]:
         )
         if hit:
             return list(_CARD_CACHE["rows"])
+    min_pct = MIN_ROI_30D * 100
     rows = []
     for leader in Leader.objects.filter(enabled=True).select_related("snapshot").order_by("id"):
         card = _card(leader, detail=False)
         if card.get("waiting"):
             continue
-        if float(card.get("roi") or 0) <= 0:
+        if float(card.get("roi") or 0) <= min_pct:
             continue
         rows.append(card)
     with _CARD_LOCK:

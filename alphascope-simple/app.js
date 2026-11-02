@@ -602,7 +602,7 @@ function renderLeaderboard(){
   var data = wallets.filter(function(wallet){
     if ((wallet.name + wallet.address).toLowerCase().indexOf(boardTerm) < 0) return false;
     if (wallet.waiting) return false;
-    return Number(wallet.roi) > 0;
+    return Number(wallet.roi) > 10;
   }).slice().sort(function(a, b){
     if(boardOrder === 'dd') return a.dd - b.dd;
     return b[boardOrder] - a[boardOrder];

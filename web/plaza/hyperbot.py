@@ -17,6 +17,12 @@ HOT_URL = "https://hyperbot.network/api/leaderboard/smart/hot?lang=en&pnlList=fa
 SOURCE = "hyperbot"
 # 热门自动启用上限，避免一次同步把监控打满
 MAX_HOT = max(10, int(os.environ.get("HYPE_HOT_MAX", "80")))
+# 榜单/监控最低 30 日 ROI（小数，0.10 = 10%）
+MIN_ROI_30D = 0.10
+
+
+def roi_ok(roi: float) -> bool:
+    return float(roi) > MIN_ROI_30D
 
 
 def fetch_hot(timeout: float = 20) -> list[dict]:
@@ -51,7 +57,7 @@ def profitable_ranked(rows: list[dict]) -> list[tuple[float, str, str]]:
 
 
 def disable_negative_hot_from_snapshots() -> int:
-    """已入库热门钱包若链上 30 日 ROI≤0，立即停用（不等下一轮 Hyperbot 热门列表）。"""
+    """已入库热门钱包若链上 30 日 ROI≤10%，立即停用。"""
     import json
 
     disabled = 0
@@ -70,7 +76,7 @@ def disable_negative_hot_from_snapshots() -> int:
             roi = float(((payload.get("periods") or {}).get("30d") or {}).get("roi") or 0)
         except (TypeError, ValueError):
             continue
-        if roi > 0:
+        if roi_ok(roi):
             continue
         Leader.objects.filter(pk=leader.pk, enabled=True).update(enabled=False)
         disabled += 1
