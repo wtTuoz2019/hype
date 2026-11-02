@@ -25,10 +25,17 @@ def refresh_due() -> None:
     from django.db import close_old_connections
     from django.utils import timezone
 
+    from plaza.hyperbot import disable_negative_hot_from_snapshots
     from plaza.models import Leader, LeaderSnapshot
     from plaza.services import refresh_leader
 
     close_old_connections()
+    try:
+        dropped = disable_negative_hot_from_snapshots()
+        if dropped:
+            print(f"停用负收益热门钱包 {dropped} 个", flush=True)
+    except Exception as exc:  # noqa: BLE001
+        print(f"负收益热门清理失败: {exc}", flush=True)
     now = timezone.now()
     due_full: list = []
     due_light: list = []

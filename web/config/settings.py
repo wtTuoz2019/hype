@@ -31,7 +31,9 @@ def _load_dotenv(path: Path) -> None:
         os.environ.setdefault(key, value)
 
 
-_load_dotenv(BASE_DIR / ".env")
+# 单测默认走内存库；不要把开发机 .env 里的 MySQL 灌进 test 进程
+if "test" not in sys.argv:
+    _load_dotenv(BASE_DIR / ".env")
 
 SECRET_PATH = BASE_DIR / "data" / "django.secret"
 SECRET_PATH.parent.mkdir(parents=True, exist_ok=True)

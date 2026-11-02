@@ -160,6 +160,8 @@ def board(request):
             roi_value = float(period.get("roi") or 0)
         except (TypeError, ValueError):
             roi_value = 0.0
+        if bool(stats.get("waiting")) or roi_value <= 0:
+            continue
         win = stats.get("win_rate")
         try:
             win_value = float(win) if win is not None else -1.0
@@ -169,7 +171,7 @@ def board(request):
             {
                 "leader": leader,
                 "pack": pack,
-                "waiting": bool(stats.get("waiting")),
+                "waiting": False,
                 "roi_value": roi_value,
                 "win_value": win_value,
                 "win_rate": f"{win_value * 100:.1f}%" if win_value >= 0 else "-",

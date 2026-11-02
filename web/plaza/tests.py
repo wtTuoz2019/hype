@@ -600,6 +600,25 @@ class ScopePageTests(TestCase):
         self.assertEqual(card["roi"], 12.0)
         self.assertNotIn("positions", card)
         self.assertGreater(card["dd"], 0)
+        # 负收益钱包不进排行榜卡片
+        loser = Leader.objects.create(name="亏损甲", address="0x" + "fe" * 20, enabled=True)
+        LeaderSnapshot.objects.create(
+            leader=loser,
+            payload=json.dumps(
+                {
+                    "periods": {"30d": {"pnl": -100, "roi": -0.5, "equity": 1000, "curve": []}},
+                    "positions": [],
+                    "closes": [],
+                    "win_rate": 0.2,
+                    "close_count": 3,
+                }
+            ),
+            full=True,
+        )
+        listed_pos = self.client.get("/api/tape/?wallets=1&events=0").json()
+        ids = [row["id"] for row in listed_pos["wallets"]]
+        self.assertIn(str(leader.id), ids)
+        self.assertNotIn(str(loser.id), ids)
         detail = self.client.get(f"/api/wallet/?id={leader.id}").json()["wallet"]
         self.assertEqual(detail["positions"][0]["coin"], "BTC")
         self.assertEqual(detail["history"][0]["side"], "平空")

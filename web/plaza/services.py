@@ -150,3 +150,11 @@ def refresh_leader(leader: Leader, full: bool) -> None:
             "full": full or bool(snap and snap.full),
         },
     )
+    # 热门同步进来的钱包：30 日收益转负后自动停用，避免继续出现在榜单/跟单池
+    if full and (leader.source or "") == "hyperbot":
+        try:
+            roi = float(((payload.get("periods") or {}).get("30d") or {}).get("roi") or 0)
+        except (TypeError, ValueError):
+            roi = 0.0
+        if roi <= 0 and leader.enabled:
+            Leader.objects.filter(pk=leader.pk, enabled=True).update(enabled=False)

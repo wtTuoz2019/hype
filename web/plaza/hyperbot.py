@@ -50,6 +50,33 @@ def profitable_ranked(rows: list[dict]) -> list[tuple[float, str, str]]:
     return ranked
 
 
+def disable_negative_hot_from_snapshots() -> int:
+    """已入库热门钱包若链上 30 日 ROI≤0，立即停用（不等下一轮 Hyperbot 热门列表）。"""
+    import json
+
+    disabled = 0
+    for leader in Leader.objects.filter(enabled=True, source=SOURCE).select_related("snapshot"):
+        try:
+            snap = leader.snapshot
+        except Exception:  # noqa: BLE001
+            continue
+        if snap is None or not snap.full:
+            continue
+        try:
+            payload = json.loads(snap.payload)
+        except (TypeError, json.JSONDecodeError):
+            continue
+        try:
+            roi = float(((payload.get("periods") or {}).get("30d") or {}).get("roi") or 0)
+        except (TypeError, ValueError):
+            continue
+        if roi > 0:
+            continue
+        Leader.objects.filter(pk=leader.pk, enabled=True).update(enabled=False)
+        disabled += 1
+    return disabled
+
+
 def sync_hot(rows: list[dict]) -> dict[str, int]:
     """只增改 source=hyperbot 的地址。手工添加的钱包保持原样，也可以删除。"""
     ranked = profitable_ranked(rows)
@@ -85,6 +112,7 @@ def sync_hot(rows: list[dict]) -> dict[str, int]:
         .exclude(address__in=keep)
         .update(enabled=False)
     )
+    disabled += disable_negative_hot_from_snapshots()
     return {
         "created": created,
         "renamed": renamed,

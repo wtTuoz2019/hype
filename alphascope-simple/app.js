@@ -599,8 +599,11 @@ function setBoardTerm(value){ boardTerm = value.trim().toLowerCase(); renderLead
 function renderLeaderboard(){
   var root = document.getElementById('leaderboard');
   if(!root) return;
-  var data = wallets.filter(function(wallet){ return (wallet.name + wallet.address).toLowerCase().indexOf(boardTerm) >= 0; }).slice().sort(function(a, b){
-    if(!!a.waiting !== !!b.waiting) return a.waiting ? 1 : -1;
+  var data = wallets.filter(function(wallet){
+    if ((wallet.name + wallet.address).toLowerCase().indexOf(boardTerm) < 0) return false;
+    if (wallet.waiting) return false;
+    return Number(wallet.roi) > 0;
+  }).slice().sort(function(a, b){
     if(boardOrder === 'dd') return a.dd - b.dd;
     return b[boardOrder] - a[boardOrder];
   });

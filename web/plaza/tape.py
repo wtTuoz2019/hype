@@ -500,7 +500,7 @@ def _card(leader: Leader, *, detail: bool = False) -> dict:
 
 
 def wallet_cards(*, force: bool = False) -> list[dict]:
-    """列表/排行榜用瘦卡片，不含持仓曲线。"""
+    """列表/排行榜用瘦卡片，不含持仓曲线。只展示 30 日 ROI > 0 的钱包。"""
     ensure_leaders()
     rev = wallet_rev()
     now = time.monotonic()
@@ -513,10 +513,14 @@ def wallet_cards(*, force: bool = False) -> list[dict]:
         )
         if hit:
             return list(_CARD_CACHE["rows"])
-    rows = [
-        _card(leader, detail=False)
-        for leader in Leader.objects.filter(enabled=True).select_related("snapshot").order_by("id")
-    ]
+    rows = []
+    for leader in Leader.objects.filter(enabled=True).select_related("snapshot").order_by("id"):
+        card = _card(leader, detail=False)
+        if card.get("waiting"):
+            continue
+        if float(card.get("roi") or 0) <= 0:
+            continue
+        rows.append(card)
     with _CARD_LOCK:
         _CARD_CACHE["rev"] = rev
         _CARD_CACHE["at"] = now
