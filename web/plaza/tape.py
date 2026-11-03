@@ -280,16 +280,18 @@ def today_focus(request, *, limit: int = 3) -> list[dict]:
 
 
 def wallet_rev() -> str:
-    """快照有没有更新：前端拿这个决定要不要拉钱包卡片。"""
+    """钱包集合/快照有没有更新：前端拿这个决定要不要拉钱包卡片。"""
+    from django.db.models import Count, Max
+
     latest = (
         LeaderSnapshot.objects.filter(leader__enabled=True)
         .order_by("-fetched_at")
         .values_list("fetched_at", flat=True)
         .first()
     )
-    count = Leader.objects.filter(enabled=True).count()
+    agg = Leader.objects.filter(enabled=True).aggregate(n=Count("id"), mx=Max("id"))
     stamp = str(int(latest.timestamp() * 1000)) if latest else "0"
-    return f"{count}:{stamp}"
+    return f"{agg.get('n') or 0}:{agg.get('mx') or 0}:{stamp}"
 
 
 def _float(value, default=0.0) -> float:
@@ -503,9 +505,9 @@ def wallet_cards(*, force: bool = False) -> list[dict]:
     """列表/排行榜用瘦卡片。
 
     - 手工添加（source 空）：启用即展示，可先显示「收益刷新中」
-    - 热门同步：必须已有快照且 30 日 ROI > 10%
+    - 热门同步：必须已有快照且 30 日 ROI 过 HYPE_MIN_ROI_30D
     """
-    from plaza.hyperbot import MIN_ROI_30D
+    from plaza.hyperbot import min_roi_30d
 
     ensure_leaders()
     rev = wallet_rev()
@@ -519,7 +521,7 @@ def wallet_cards(*, force: bool = False) -> list[dict]:
         )
         if hit:
             return list(_CARD_CACHE["rows"])
-    min_pct = MIN_ROI_30D * 100
+    min_pct = min_roi_30d() * 100
     rows = []
     for leader in Leader.objects.filter(enabled=True).select_related("snapshot").order_by("id"):
         card = _card(leader, detail=False)

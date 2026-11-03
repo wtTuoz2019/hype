@@ -33,7 +33,12 @@ def refresh_due() -> None:
     try:
         dropped = disable_negative_hot_from_snapshots()
         if dropped:
-            print(f"停用低收益热门钱包(30日ROI≤10%) {dropped} 个", flush=True)
+            from plaza.hyperbot import min_roi_30d
+
+            print(
+                f"停用低收益热门钱包(30日ROI≤{min_roi_30d():g}) {dropped} 个",
+                flush=True,
+            )
     except Exception as exc:  # noqa: BLE001
         print(f"低收益热门清理失败: {exc}", flush=True)
     now = timezone.now()

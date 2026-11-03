@@ -17,12 +17,33 @@ HOT_URL = "https://hyperbot.network/api/leaderboard/smart/hot?lang=en&pnlList=fa
 SOURCE = "hyperbot"
 # 热门自动启用上限，避免一次同步把监控打满
 MAX_HOT = max(10, int(os.environ.get("HYPE_HOT_MAX", "80")))
-# 榜单/监控最低 30 日 ROI（小数，0.10 = 10%）
-MIN_ROI_30D = 0.10
+
+
+def min_roi_30d() -> float:
+    """热门源上榜门槛（小数）。读 settings.HYPE_MIN_ROI_30D / 环境变量 HYPE_MIN_ROI_30D。"""
+    try:
+        from django.conf import settings
+
+        raw = getattr(settings, "HYPE_MIN_ROI_30D", None)
+    except Exception:  # noqa: BLE001
+        raw = None
+    if raw is None:
+        raw = os.environ.get("HYPE_MIN_ROI_30D", "0")
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def roi_ok(roi: float) -> bool:
-    return float(roi) > MIN_ROI_30D
+    return float(roi) > min_roi_30d()
+
+
+def __getattr__(name: str):
+    # 兼容 from plaza.hyperbot import MIN_ROI_30D
+    if name == "MIN_ROI_30D":
+        return min_roi_30d()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def fetch_hot(timeout: float = 20) -> list[dict]:
@@ -57,7 +78,7 @@ def profitable_ranked(rows: list[dict]) -> list[tuple[float, str, str]]:
 
 
 def disable_negative_hot_from_snapshots() -> int:
-    """已入库热门钱包若链上 30 日 ROI≤10%，立即停用。"""
+    """已入库热门钱包若 30 日 ROI 未过 HYPE_MIN_ROI_30D，立即停用。"""
     import json
 
     disabled = 0

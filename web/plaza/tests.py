@@ -600,12 +600,15 @@ class ScopePageTests(TestCase):
         self.assertEqual(card["roi"], 12.0)
         self.assertNotIn("positions", card)
         self.assertGreater(card["dd"], 0)
-        # 热门源：30 日 ROI≤10% 不进排行榜；手工源仍会展示
+        # 热门源：30 日 ROI 未过 HYPE_MIN_ROI_30D（默认>0）不进排行榜；手工源仍会展示
         loser = Leader.objects.create(
             name="亏损甲", address="0x" + "fe" * 20, enabled=True, source="hyperbot"
         )
         weak = Leader.objects.create(
-            name="低收益", address="0x" + "fd" * 20, enabled=True, source="hyperbot"
+            name="微利", address="0x" + "fd" * 20, enabled=True, source="hyperbot"
+        )
+        zero = Leader.objects.create(
+            name="零收益", address="0x" + "fc" * 20, enabled=True, source="hyperbot"
         )
         LeaderSnapshot.objects.create(
             leader=loser,
@@ -633,11 +636,25 @@ class ScopePageTests(TestCase):
             ),
             full=True,
         )
+        LeaderSnapshot.objects.create(
+            leader=zero,
+            payload=json.dumps(
+                {
+                    "periods": {"30d": {"pnl": 0, "roi": 0.0, "equity": 1000, "curve": []}},
+                    "positions": [],
+                    "closes": [],
+                    "win_rate": 0.5,
+                    "close_count": 2,
+                }
+            ),
+            full=True,
+        )
         listed_pos = self.client.get("/api/tape/?wallets=1&events=0").json()
         ids = [row["id"] for row in listed_pos["wallets"]]
         self.assertIn(str(leader.id), ids)  # 12% 保留
+        self.assertIn(str(weak.id), ids)  # 8%>0 保留
         self.assertNotIn(str(loser.id), ids)
-        self.assertNotIn(str(weak.id), ids)  # 8% 去掉
+        self.assertNotIn(str(zero.id), ids)  # =0 去掉
         detail = self.client.get(f"/api/wallet/?id={leader.id}").json()["wallet"]
         self.assertEqual(detail["positions"][0]["coin"], "BTC")
         self.assertEqual(detail["history"][0]["side"], "平空")
@@ -1004,3 +1021,82 @@ class ScopePageTests(TestCase):
         row = TradeSignal.objects.get(sig_id="sig:tg:1")
         text = format_signal_message(row)
         self.assertIn("群推钱包", text)
+
+
+class TrendApiTests(TestCase):
+    def test_trend_aggregates_top_wallets_positions_and_today_flow(self):
+        strong = Leader.objects.create(
+            name="强", address="0x" + "a1" * 20, enabled=True, source=""
+        )
+        weak = Leader.objects.create(
+            name="弱", address="0x" + "a2" * 20, enabled=True, source=""
+        )
+        LeaderSnapshot.objects.create(
+            leader=strong,
+            payload=json.dumps(
+                {
+                    "periods": {"30d": {"pnl": 2000, "roi": 0.25, "equity": 10000, "curve": []}},
+                    "positions": [
+                        {"coin": "BTC", "szi": 1, "entry": "100000", "value": 100000, "upnl": 10},
+                        {"coin": "ETH", "szi": -2, "entry": "3000", "value": 6000, "upnl": -5},
+                    ],
+                    "closes": [],
+                    "win_rate": 0.6,
+                    "close_count": 10,
+                }
+            ),
+            full=True,
+        )
+        LeaderSnapshot.objects.create(
+            leader=weak,
+            payload=json.dumps(
+                {
+                    "periods": {"30d": {"pnl": 50, "roi": 0.02, "equity": 1000, "curve": []}},
+                    "positions": [
+                        {"coin": "BTC", "szi": -0.1, "entry": "100000", "value": 10000, "upnl": 1},
+                    ],
+                    "closes": [],
+                    "win_rate": 0.4,
+                    "close_count": 4,
+                }
+            ),
+            full=True,
+        )
+        now_ms = int(time.time() * 1000)
+        TradeSignal.objects.create(
+            leader=strong,
+            sig_id="trend-open",
+            time_ms=now_ms,
+            coin="BTC",
+            action="open",
+            side="long",
+            label="开多",
+            delta_szi="0.5",
+            px="100000",
+        )
+        TradeSignal.objects.create(
+            leader=strong,
+            sig_id="trend-close",
+            time_ms=now_ms - 1000,
+            coin="ETH",
+            action="close",
+            side="short",
+            label="平空",
+            delta_szi="-1",
+            px="3000",
+        )
+        body = self.client.get("/api/trend/", {"top": 1, "order": "roi"}).json()
+        self.assertEqual(body["params"]["top"], 1)
+        self.assertEqual(len(body["wallets"]), 1)
+        self.assertEqual(body["wallets"][0]["id"], strong.id)
+        self.assertEqual(body["wallets"][0]["bias"], "long")
+        btc = next(row for row in body["coins"] if row["coin"] == "BTC")
+        self.assertEqual(btc["bias"], "long")
+        self.assertEqual(body["today"]["open_count"], 1)
+        self.assertEqual(body["today"]["close_count"], 1)
+        self.assertEqual(body["today"]["bias"], "long")
+        self.assertIn("hint", body["summary"])
+        ten = self.client.get("/api/trend/", {"top": 10}).json()
+        ids = {row["id"] for row in ten["wallets"]}
+        self.assertIn(strong.id, ids)
+        self.assertIn(weak.id, ids)

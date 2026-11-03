@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import copy_api, scope_pages, views
+from . import copy_api, scope_pages, trend_api, views
 
 urlpatterns = [
     path("", lambda request: scope_pages.render_scope(request, "home"), name="home"),
@@ -13,6 +13,7 @@ urlpatterns = [
     path("api/tape/test/", scope_pages.tape_test, name="tape_test"),
     path("api/tts/", scope_pages.tts_audio, name="tts_audio"),
     path("api/wallet/", scope_pages.wallet_api, name="wallet_api"),
+    path("api/trend/", trend_api.trend_api, name="trend_api"),
     path("api/membership/", scope_pages.membership, name="membership"),
     path("api/subscribe/", scope_pages.subscribe, name="subscribe"),
     path("api/copy/", copy_api.copy_overview, name="copy_overview"),

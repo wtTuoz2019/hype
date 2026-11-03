@@ -599,7 +599,7 @@ function setBoardTerm(value){ boardTerm = value.trim().toLowerCase(); renderLead
 function renderLeaderboard(){
   var root = document.getElementById('leaderboard');
   if(!root) return;
-  // 后端已筛：手工钱包直接进榜；热门须 30 日 ROI>10%
+  // 后端已筛：手工钱包直接进榜；热门须过 HYPE_MIN_ROI_30D
   var data = wallets.filter(function(wallet){
     return (wallet.name + wallet.address).toLowerCase().indexOf(boardTerm) >= 0;
   }).slice().sort(function(a, b){

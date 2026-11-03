@@ -155,6 +155,11 @@ TELEGRAM_PRO_CHAT_ID = os.environ.get("TELEGRAM_PRO_CHAT_ID", "")
 TELEGRAM_PRO_INVITE_URL = os.environ.get("TELEGRAM_PRO_INVITE_URL", "")
 # 跟单 API 白名单提示用的服务器出口 IP（写入交易所 IP 限制）
 COPY_API_WHITELIST_IP = os.environ.get("COPY_API_WHITELIST_IP", "")
+# 热门源上榜/自动停用门槛：30 日 ROI 小数（0=只要>0；0.1=须>10%）。只改 .env 即可。
+try:
+    HYPE_MIN_ROI_30D = float(os.environ.get("HYPE_MIN_ROI_30D", "0") or 0)
+except (TypeError, ValueError):
+    HYPE_MIN_ROI_30D = 0.0
 LOGIN_REDIRECT_URL = "/"
 LOGOUT_REDIRECT_URL = "/"
 

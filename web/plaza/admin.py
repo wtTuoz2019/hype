@@ -1,7 +1,9 @@
 import csv
+import json
 
 from django.contrib import admin
 from django.http import HttpResponse
+from django.utils.html import format_html
 
 from .models import (
     AlertSub,
@@ -19,15 +21,64 @@ admin.site.site_title = "AlphaScope"
 admin.site.index_title = "站点管理"
 
 
+def _leader_roi_30d(leader: Leader) -> float | None:
+    try:
+        snap = leader.snapshot
+    except LeaderSnapshot.DoesNotExist:
+        return None
+    try:
+        payload = json.loads(snap.payload or "{}")
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    period = (payload.get("periods") or {}).get("30d") or {}
+    try:
+        return float(period.get("roi") or 0) * 100
+    except (TypeError, ValueError):
+        return None
+
+
 @admin.register(Leader)
 class LeaderAdmin(admin.ModelAdmin):
-    list_display = ("name", "address", "source", "enabled", "created_at")
+    list_display = ("name", "address", "source", "enabled", "roi_30d", "snap_at", "created_at")
     list_filter = ("enabled", "source")
     search_fields = ("name", "address")
     list_editable = ("enabled",)
     ordering = ("-id",)
+    fields = ("name", "address", "enabled", "source", "roi_30d", "snap_at", "created_at")
+    readonly_fields = ("roi_30d", "snap_at", "created_at")
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("snapshot")
+
+    @admin.display(description="30日ROI")
+    def roi_30d(self, obj: Leader):
+        from plaza.hyperbot import min_roi_30d
+
+        pct = _leader_roi_30d(obj)
+        if pct is None:
+            return format_html('<span style="color:#999">刷新中</span>')
+        text = f"{pct:+.1f}%"
+        # 热门源门槛见 HYPE_MIN_ROI_30D；手工源不受限
+        thr_pct = min_roi_30d() * 100
+        manual = not (obj.source or "").strip()
+        ok = manual or pct > thr_pct
+        color = "#0a7" if ok else "#c40"
+        tip = "上榜" if ok else f"未上榜(热门需ROI>{thr_pct:g}%)"
+        return format_html('<span style="color:{}" title="{}">{}</span>', color, tip, text)
+
+    @admin.display(description="收益刷新")
+    def snap_at(self, obj: Leader):
+        try:
+            return obj.snapshot.fetched_at
+        except LeaderSnapshot.DoesNotExist:
+            return "—"
 
     def save_model(self, request, obj, form, change):
+        # 后台手工添加：来源务必留空，否则按热门规则过 HYPE_MIN_ROI_30D 才上榜
+        if obj.source and str(obj.source).strip().lower() in ("manual", "手工", "admin"):
+            obj.source = ""
         super().save_model(request, obj, form, change)
         # 后台新增/启用后后台预热收益，否则前端要等监控轮询才有快照
         if obj.enabled:

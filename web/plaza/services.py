@@ -150,7 +150,7 @@ def refresh_leader(leader: Leader, full: bool) -> None:
             "full": full or bool(snap and snap.full),
         },
     )
-    # 热门同步进来的钱包：30 日 ROI≤10% 自动停用，避免继续出现在榜单/跟单池
+    # 热门同步进来的钱包：30 日 ROI 未过 HYPE_MIN_ROI_30D 自动停用
     if full and (leader.source or "") == "hyperbot":
         from plaza.hyperbot import roi_ok
 
