@@ -3,6 +3,9 @@ __pycache__/
 .venv/
 venv/
 .env
+franklabs.env
+tools/franklabs.env
+tools/data/
 data/
 staticfiles/
 *.sqlite3
