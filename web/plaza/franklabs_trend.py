@@ -437,7 +437,7 @@ def feed_bundle(*, limit: int = 60, max_age_sec: int = 6 * 3600) -> dict:
             {
                 "id": f"fl:{tid}",
                 "name": name,
-                "address": "冰糖橙实盘",
+                "address": "binance",
                 "win": 0,
                 "wins": 0,
                 "total": int(meta.get("events_count") or 0),

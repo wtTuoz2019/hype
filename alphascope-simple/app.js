@@ -120,7 +120,7 @@ function eventHTML(row){
   if(!wallet || !wallet.id) return '';
   var side = String(row.act).includes('空') ? 'short' : 'long';
   if(fl){
-    return '<div class="event"><span class="clock">' + esc(row.time) + '</span><div class="event-main"><div class="line"><span class="action ' + side + '">' + esc(row.act) + '</span><span class="symbol">' + esc(row.symbol) + ' 合约</span><span class="feed-sim">冰糖橙</span></div><div class="name"><b>' + esc(wallet.name || row.wallet_name || row.wallet) + '</b> <span class="tiny">冰糖橙实盘</span></div><div class="meta">采集开单' + (row.amount ? ' · ' + formatAmount(row.amount) : '') + '</div></div><div class="right rank-actions"><a class="btn outline" href="/analysis/">看趋势</a></div></div>';
+    return '<div class="event"><span class="clock">' + esc(row.time) + '</span><div class="event-main"><div class="line"><span class="action ' + side + '">' + esc(row.act) + '</span><span class="symbol">' + esc(row.symbol) + ' 合约</span><span class="feed-sim">binance</span></div><div class="name"><b>' + esc(wallet.name || row.wallet_name || row.wallet) + '</b></div><div class="meta">' + (row.amount ? formatAmount(row.amount) : '') + '</div></div><div class="right rank-actions"><a class="btn outline" href="/analysis/">看趋势</a></div></div>';
   }
   var subscribed = subscriptions().indexOf(String(wallet.id)) >= 0;
   return '<div class="event"><span class="clock">' + esc(row.time) + '</span><div class="event-main"><div class="line"><span class="action ' + side + '">' + esc(row.act) + '</span><span class="symbol">' + esc(row.symbol) + ' 合约</span></div><div class="name"><a href="/wallet/?id=' + encodeURIComponent(wallet.id) + '">' + esc(wallet.name) + '</a> <span class="tiny">' + esc(wallet.address) + '</span></div><div class="meta">历史平仓胜率 ' + win(wallet) + ' · ' + wallet.wins + '/' + wallet.total + ' 笔' + (row.amount ? ' · 开单 ' + formatAmount(row.amount) : '') + '</div></div><div class="right rank-actions"><button class="btn ' + (subscribed ? 'secondary' : 'outline') + '" onclick="toggleSub(\'' + wallet.id + '\')">' + (subscribed ? '✓ 已订阅' : '订阅提醒') + '</button>' + copyBtnHTML(wallet.id) + '</div></div>';
@@ -688,7 +688,7 @@ function paintTrendLive(data){
   var source = params.source || summary.source || 'auto';
   var meta = document.getElementById('trend-meta');
   if(meta){
-    meta.textContent = (source === 'franklabs' ? '冰糖橙实盘' : (source === 'hl' ? '站内 Hyperliquid' : source)) +
+    meta.textContent = (source === 'franklabs' ? 'binance' : (source === 'hl' ? '站内 Hyperliquid' : source)) +
       ' · ' + (data.as_of || data.day || '') +
       (params.franklabs_fetched_at ? (' · 同步 ' + params.franklabs_fetched_at) : '');
   }
