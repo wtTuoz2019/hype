@@ -111,11 +111,18 @@ function formatAmount(n){
   n = Number(n) || 0;
   return n >= 10000 ? (n / 10000).toLocaleString('zh-CN', {maximumFractionDigits:1}) + ' 万 USDT' : n.toLocaleString('zh-CN') + ' USDT';
 }
+function isFranklabsEvent(row){
+  return !!(row && (row.source === 'franklabs' || String(row.id || '').indexOf('fl:') === 0 || String(row.wallet || '').indexOf('fl:') === 0));
+}
 function eventHTML(row){
-  var wallet = wallets.find(function(item){ return item.id === row.wallet; });
-  if(!wallet) return '';
+  var fl = isFranklabsEvent(row);
+  var wallet = wallets.find(function(item){ return String(item.id) === String(row.wallet); }) || walletFor(row);
+  if(!wallet || !wallet.id) return '';
   var side = String(row.act).includes('空') ? 'short' : 'long';
-  var subscribed = subscriptions().indexOf(wallet.id) >= 0;
+  if(fl){
+    return '<div class="event"><span class="clock">' + esc(row.time) + '</span><div class="event-main"><div class="line"><span class="action ' + side + '">' + esc(row.act) + '</span><span class="symbol">' + esc(row.symbol) + ' 合约</span><span class="feed-sim">冰糖橙</span></div><div class="name"><b>' + esc(wallet.name || row.wallet_name || row.wallet) + '</b> <span class="tiny">冰糖橙实盘</span></div><div class="meta">采集开单' + (row.amount ? ' · ' + formatAmount(row.amount) : '') + '</div></div><div class="right rank-actions"><a class="btn outline" href="/analysis/">看趋势</a></div></div>';
+  }
+  var subscribed = subscriptions().indexOf(String(wallet.id)) >= 0;
   return '<div class="event"><span class="clock">' + esc(row.time) + '</span><div class="event-main"><div class="line"><span class="action ' + side + '">' + esc(row.act) + '</span><span class="symbol">' + esc(row.symbol) + ' 合约</span></div><div class="name"><a href="/wallet/?id=' + encodeURIComponent(wallet.id) + '">' + esc(wallet.name) + '</a> <span class="tiny">' + esc(wallet.address) + '</span></div><div class="meta">历史平仓胜率 ' + win(wallet) + ' · ' + wallet.wins + '/' + wallet.total + ' 笔' + (row.amount ? ' · 开单 ' + formatAmount(row.amount) : '') + '</div></div><div class="right rank-actions"><button class="btn ' + (subscribed ? 'secondary' : 'outline') + '" onclick="toggleSub(\'' + wallet.id + '\')">' + (subscribed ? '✓ 已订阅' : '订阅提醒') + '</button>' + copyBtnHTML(wallet.id) + '</div></div>';
 }
 async function toggleSub(id){
@@ -512,20 +519,46 @@ async function permission(){
 var walletRev = live && live.wallet_rev ? live.wallet_rev : '';
 var lastEventId = 0;
 var pullingWallets = false;
-events.forEach(function(row){ if(row.id > lastEventId) lastEventId = row.id; });
+function numericEventId(id){
+  if(typeof id === 'number' && isFinite(id)) return id;
+  var s = String(id || '');
+  if(/^\d+$/.test(s)) return Number(s);
+  return 0;
+}
+events.forEach(function(row){
+  var n = numericEventId(row.id);
+  if(n > lastEventId) lastEventId = n;
+});
+function mergeFranklabsIntoEvents(list, flRows){
+  if(!flRows || !flRows.length) return list || [];
+  var map = {};
+  (list || []).forEach(function(row){ map[String(row.id)] = row; });
+  flRows.forEach(function(row){ map[String(row.id)] = row; });
+  return Object.keys(map).map(function(k){ return map[k]; }).sort(function(a, b){
+    return (Number(b.time_ms) || 0) - (Number(a.time_ms) || 0);
+  }).slice(0, 120);
+}
 function applyTape(data){
   if(!data || !data.events) return;
-  var fresh = data.events.filter(function(row){ return !seen[row.id]; });
-  data.events.forEach(function(row){
+  var incoming = data.events.slice();
+  if(data.fl_events && data.fl_events.length){
+    incoming = mergeFranklabsIntoEvents(incoming, data.fl_events);
+  }
+  var fresh = incoming.filter(function(row){ return !seen[row.id]; });
+  incoming.forEach(function(row){
     seen[row.id] = true;
-    if(row.id > lastEventId) lastEventId = row.id;
+    var n = numericEventId(row.id);
+    if(n > lastEventId) lastEventId = n;
   });
   if(data.incremental){
-    if(fresh.length){
-      events = fresh.slice().reverse().concat(events).slice(0, 80);
+    if(fresh.length || (data.fl_events && data.fl_events.length)){
+      events = mergeFranklabsIntoEvents(
+        fresh.filter(function(row){ return !isFranklabsEvent(row); }).slice().reverse().concat(events),
+        data.fl_events || fresh.filter(isFranklabsEvent)
+      ).slice(0, 120);
     }
   } else {
-    events = data.events;
+    events = incoming;
   }
   if(data.today) live.today = data.today;
   if(data.today_focus) live.today_focus = data.today_focus;

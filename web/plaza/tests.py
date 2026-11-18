@@ -1172,3 +1172,31 @@ class TrendApiTests(TestCase):
         empty = self.client.get("/api/trend/", {"source": "franklabs", "top": 3}).json()
         self.assertEqual(empty["params"]["source"], "franklabs")
         self.assertIn("hint", empty["summary"])
+
+    def test_franklabs_feed_bundle_shape(self):
+        from django.utils import timezone as dj_tz
+        from plaza.franklabs_trend import feed_bundle
+
+        with patch("plaza.franklabs_trend.load_franklabs_payload") as load:
+            load.return_value = {
+                "fetched_at": dj_tz.localtime().isoformat(),
+                "directory": {"traders": [{"id": "aoying", "name": "熬鹰", "events_count": 9}]},
+                "items": [
+                    {
+                        "action": "open",
+                        "side": "long",
+                        "symbol": "ETH",
+                        "trader_id": "aoying",
+                        "trader_name": "熬鹰",
+                        "message_ts": dj_tz.localtime().isoformat(),
+                        "event_id": "feed-1",
+                        "position_value_after": "12000",
+                    }
+                ],
+            }
+            bundle = feed_bundle(limit=10)
+        self.assertEqual(bundle["events"][0]["id"], "fl:feed-1")
+        self.assertEqual(bundle["events"][0]["act"], "开多")
+        self.assertEqual(bundle["events"][0]["source"], "franklabs")
+        self.assertEqual(bundle["wallets"][0]["id"], "fl:aoying")
+

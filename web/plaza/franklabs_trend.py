@@ -377,3 +377,81 @@ def build_trend_from_franklabs(raw: dict, *, top: int = 10) -> dict:
             "source": "franklabs",
         },
     }
+
+
+def feed_bundle(*, limit: int = 60, max_age_sec: int = 6 * 3600) -> dict:
+    """开单快讯用：最近开/加/减/平 + 交易员卡片占位。
+
+    事件 id 形如 fl:…，与站内 TradeSignal 数字 id 区分。
+    """
+    raw = load_franklabs_payload(max_age_sec=max_age_sec)
+    if not raw:
+        return {"events": [], "wallets": []}
+    items = [row for row in (raw.get("items") or []) if isinstance(row, dict)]
+    directory = raw.get("directory") or {}
+    traders_meta = {
+        str(t.get("id")): t
+        for t in (directory.get("traders") or [])
+        if isinstance(t, dict) and t.get("id")
+    }
+    events: list[dict] = []
+    for row in items:
+        packed = _pack_open_close(row)
+        if not packed:
+            continue
+        tid = str(packed.get("leader_id") or "")
+        eid = str(packed.get("id") or "")
+        if not eid:
+            continue
+        ts = packed.get("time_ms") or 0
+        try:
+            clock = (
+                datetime.fromtimestamp(ts / 1000, tz=dj_tz.get_current_timezone()).strftime("%H:%M:%S")
+                if ts
+                else "-"
+            )
+        except (TypeError, ValueError, OSError):
+            clock = "-"
+        events.append(
+            {
+                "id": f"fl:{eid}",
+                "time": clock,
+                "time_ms": ts,
+                "symbol": packed["coin"],
+                "act": packed["label"],
+                "wallet": f"fl:{tid}",
+                "wallet_name": packed["leader"],
+                "amount": packed["notional"],
+                "source": "franklabs",
+            }
+        )
+    events.sort(key=lambda r: int(r.get("time_ms") or 0), reverse=True)
+    events = events[: max(1, min(int(limit), 200))]
+
+    used_ids = {str(e["wallet"])[3:] for e in events if str(e.get("wallet") or "").startswith("fl:")}
+    wallets = []
+    for tid in used_ids:
+        meta = traders_meta.get(tid) or {}
+        name = str(meta.get("name") or tid)
+        wallets.append(
+            {
+                "id": f"fl:{tid}",
+                "name": name,
+                "address": "冰糖橙实盘",
+                "win": 0,
+                "wins": 0,
+                "total": int(meta.get("events_count") or 0),
+                "roi": 0,
+                "pnl": 0,
+                "dd": 0,
+                "waiting": False,
+                "source": "franklabs",
+                "coins": "—",
+                "bias": "—",
+                "risk": "—",
+                "longPct": 0,
+            }
+        )
+    wallets.sort(key=lambda w: str(w.get("name") or ""))
+    return {"events": events, "wallets": wallets, "fetched_at": raw.get("fetched_at") or ""}
+

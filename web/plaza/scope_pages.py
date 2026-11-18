@@ -129,12 +129,41 @@ def _copy_boot(request) -> dict:
     }
 
 
+def _merge_franklabs_feed(events: list[dict], wallets: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
+    """把冰糖橙采集并进快讯；钱包卡片可选合并。"""
+    from plaza.franklabs_trend import feed_bundle
+
+    bundle = feed_bundle(limit=60)
+    fl_events = bundle.get("events") or []
+    fl_wallets = bundle.get("wallets") or []
+    if not fl_events and not fl_wallets:
+        return events, list(wallets or [])
+    merged = list(events) + list(fl_events)
+    merged.sort(key=lambda row: int(row.get("time_ms") or 0), reverse=True)
+    # 站内事件没有 time_ms 时保持相对顺序：补一个从 when/id 推不出的就靠原序
+    # event_dict 未带 time_ms，上面 int 为 0 会沉底；给站内事件补 time 排序键
+    out_wallets = list(wallets or [])
+    seen = {str(w.get("id")) for w in out_wallets}
+    for card in fl_wallets:
+        wid = str(card.get("id") or "")
+        if wid and wid not in seen:
+            out_wallets.append(card)
+            seen.add(wid)
+    return merged[:120], out_wallets
+
+
 def boot(request) -> dict:
     from plaza.telegram_group import pro_invite_url
 
     rows = visible_events(request)
     pro = is_pro(request)
     copy = _copy_boot(request)
+    events = [event_dict(row) for row in rows]
+    # 站内事件补 time_ms，方便与 franklabs 混排
+    for row, src in zip(events, rows):
+        row["time_ms"] = int(getattr(src, "time_ms", 0) or 0)
+    wallets = wallet_cards()
+    events, wallets = _merge_franklabs_feed(events, wallets)
     return {
         "pro": pro,
         "subs": subscriptions(request),
@@ -144,8 +173,8 @@ def boot(request) -> dict:
         "authUrl": request.build_absolute_uri("/auth/telegram/callback"),
         "groupInvite": pro_invite_url(),
         "wallet_rev": wallet_rev(),
-        "wallets": wallet_cards(),
-        "events": [event_dict(row) for row in rows],
+        "wallets": wallets,
+        "events": events,
         "today": today_stats(request),
         "today_focus": today_focus(request),
         "delay_sec": PRO_DELAY if pro else FREE_DELAY,
@@ -223,12 +252,26 @@ def tape_feed(request):
         if after_id is not None:
             rows = visible_events(request, after_id=after_id, limit=40)
             payload["incremental"] = True
+            events = [event_dict(row) for row in rows]
+            for row, src in zip(events, rows):
+                row["time_ms"] = int(getattr(src, "time_ms", 0) or 0)
+            # 增量轮询也附带 franklabs，前端按 id 去重合并
+            from plaza.franklabs_trend import feed_bundle
+
+            payload["fl_events"] = feed_bundle(limit=40).get("events") or []
+            payload["events"] = events
         else:
             rows = visible_events(request)
-        payload["events"] = [event_dict(row) for row in rows]
+            events = [event_dict(row) for row in rows]
+            for row, src in zip(events, rows):
+                row["time_ms"] = int(getattr(src, "time_ms", 0) or 0)
+            events, _ = _merge_franklabs_feed(events, None)
+            payload["events"] = events
     # 钱包只在明确要求时返回，避免 3 秒轮询拖大包
     if want_wallets:
-        payload["wallets"] = wallet_cards()
+        cards = wallet_cards()
+        _, cards = _merge_franklabs_feed([], cards)
+        payload["wallets"] = cards
     return JsonResponse(payload)
 
 
