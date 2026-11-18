@@ -16,4 +16,5 @@ if [ -x "../web/.venv/bin/python" ]; then
 else
   PY="python3"
 fi
-exec "$PY" franklabs_trader_live.py --sync --traders all --no-snapshots
+# 带 snapshot，供 /api/trend/ 持仓字段使用
+exec "$PY" franklabs_trader_live.py --sync --traders all

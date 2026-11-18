@@ -107,7 +107,52 @@ def _pack_signal(row: TradeSignal) -> dict:
     }
 
 
-def build_trend(*, top: int = 5, order: str = "roi") -> dict:
+def build_trend(*, top: int = 5, order: str = "roi", source: str = "auto") -> dict:
+    """构建趋势参考。
+
+    source:
+      - auto（默认）：有新鲜 franklabs 同步则用全员实盘，否则回退 Hyperliquid 前 N
+      - franklabs：只用 franklabs
+      - hl / hyper：只用站内 Hyperliquid 榜
+    """
+    src = (source or "auto").strip().lower()
+    if src in ("auto", "franklabs", "fl", "冰糖橙"):
+        from plaza.franklabs_trend import build_trend_from_franklabs, load_franklabs_payload
+
+        raw = load_franklabs_payload()
+        if raw is not None:
+            return build_trend_from_franklabs(raw, top=top)
+        if src in ("franklabs", "fl", "冰糖橙"):
+            now = timezone.localtime()
+            return {
+                "as_of": now.isoformat(),
+                "day": now.strftime("%Y-%m-%d"),
+                "params": {"top": top, "order": order, "source": "franklabs", "error": "no_sync"},
+                "wallets": [],
+                "coins": [],
+                "today": {
+                    "opens": [],
+                    "closes": [],
+                    "open_count": 0,
+                    "close_count": 0,
+                    "long_notional": 0,
+                    "short_notional": 0,
+                    "score": 0,
+                    "bias": "neutral",
+                },
+                "summary": {
+                    "position_long": 0,
+                    "position_short": 0,
+                    "position_score": 0,
+                    "position_bias": "neutral",
+                    "flow_bias": "neutral",
+                    "flow_score": 0,
+                    "agree": False,
+                    "hint": "franklabs 同步文件缺失或过期，请先跑 tools/franklabs_sync.sh",
+                    "source": "franklabs",
+                },
+            }
+
     ensure_leaders()
     top = max(1, min(int(top), 20))
     order = order if order in ("roi", "win") else "roi"
@@ -207,7 +252,7 @@ def build_trend(*, top: int = 5, order: str = "roi") -> dict:
     return {
         "as_of": now.isoformat(),
         "day": now.strftime("%Y-%m-%d"),
-        "params": {"top": top, "order": order},
+        "params": {"top": top, "order": order, "source": "hl"},
         "wallets": wallets,
         "coins": coins,
         "today": {
@@ -229,20 +274,23 @@ def build_trend(*, top: int = 5, order: str = "roi") -> dict:
             "flow_score": round(flow_score, 4),
             "agree": agree,
             "hint": hint,
+            "source": "hl",
         },
     }
 
 
 @require_GET
 def trend_api(request):
-    """GET /api/trend/?top=5&order=roi
+    """GET /api/trend/?top=10&order=roi&source=auto
 
-    - top: 1..20，默认 5
-    - order: roi | win，默认 roi（30 日收益率）
+    - top: 1..50，默认 5（franklabs 时可更大）
+    - order: roi | win（仅 hl 源）
+    - source: auto（默认，有 franklabs 同步就用）| franklabs | hl
     """
     try:
         top = int(request.GET.get("top") or 5)
     except (TypeError, ValueError):
         top = 5
     order = (request.GET.get("order") or "roi").strip().lower()
-    return JsonResponse(build_trend(top=top, order=order))
+    source = (request.GET.get("source") or "auto").strip().lower()
+    return JsonResponse(build_trend(top=top, order=order, source=source))

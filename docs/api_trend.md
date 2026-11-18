@@ -5,17 +5,21 @@
 ## 地址
 
 ```
-GET https://p.c7.pro/api/trend/?top=5&order=roi
 GET https://p.c7.pro/api/trend/?top=10&order=roi
-GET https://p.c7.pro/api/trend/?top=10&order=win
+GET https://p.c7.pro/api/trend/?top=10&source=auto
+GET https://p.c7.pro/api/trend/?top=10&source=hl
+GET https://p.c7.pro/api/trend/?top=10&source=franklabs
 ```
 
 ## 参数
 
 | 参数 | 默认 | 说明 |
 |------|------|------|
-| `top` | `5` | 前 N 个钱包，范围 `1`–`20` |
-| `order` | `roi` | `roi`=30 日收益率；`win`=胜率 |
+| `top` | `5` | 前 N 个钱包/交易员 |
+| `order` | `roi` | 仅 `source=hl`：`roi` / `win` |
+| `source` | `auto` | `auto`=有 franklabs 同步就用全员实盘（分析侧无需改）；`franklabs` 强制；`hl` 只用 Hyperliquid 榜 |
+
+分析趋势脚本继续请求原 URL 即可：有 cron 同步时，`wallets` / `coins` / `today.opens|closes` / `summary` 自动变成 franklabs 映射（label 仍是开多/开空/…）。
 
 ## 响应字段
 

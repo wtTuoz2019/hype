@@ -1085,8 +1085,9 @@ class TrendApiTests(TestCase):
             delta_szi="-1",
             px="3000",
         )
-        body = self.client.get("/api/trend/", {"top": 1, "order": "roi"}).json()
+        body = self.client.get("/api/trend/", {"top": 1, "order": "roi", "source": "hl"}).json()
         self.assertEqual(body["params"]["top"], 1)
+        self.assertEqual(body["params"].get("source"), "hl")
         self.assertEqual(len(body["wallets"]), 1)
         self.assertEqual(body["wallets"][0]["id"], strong.id)
         self.assertEqual(body["wallets"][0]["bias"], "long")
@@ -1096,7 +1097,78 @@ class TrendApiTests(TestCase):
         self.assertEqual(body["today"]["close_count"], 1)
         self.assertEqual(body["today"]["bias"], "long")
         self.assertIn("hint", body["summary"])
-        ten = self.client.get("/api/trend/", {"top": 10}).json()
+        ten = self.client.get("/api/trend/", {"top": 10, "source": "hl"}).json()
         ids = {row["id"] for row in ten["wallets"]}
         self.assertIn(strong.id, ids)
         self.assertIn(weak.id, ids)
+
+    def test_trend_franklabs_maps_to_same_shape(self):
+        from django.utils import timezone as dj_tz
+        from plaza.franklabs_trend import build_trend_from_franklabs
+
+        now = dj_tz.localtime()
+        ts = now.isoformat()
+        raw = {
+            "fetched_at": now.astimezone().isoformat(),
+            "count": 2,
+            "directory": {
+                "traders": [{"id": "aoying", "name": "熬鹰", "events_count": 100}],
+                "hot_symbols": [],
+                "symbols": ["BTC"],
+            },
+            "items": [
+                {
+                    "action": "snapshot",
+                    "trader_id": "aoying",
+                    "trader_name": "熬鹰",
+                    "message_ts": ts,
+                    "symbol": "",
+                    "side": "",
+                    "positions": [
+                        {
+                            "symbol": "BTC",
+                            "side": "long",
+                            "value": "50000",
+                            "entry_price": "90000",
+                            "unrealized_pnl": "100",
+                            "pnl_pct": "1.2",
+                            "leverage": "5",
+                        }
+                    ],
+                },
+                {
+                    "action": "open",
+                    "side": "long",
+                    "symbol": "BTC",
+                    "trader_id": "aoying",
+                    "trader_name": "熬鹰",
+                    "message_ts": ts,
+                    "event_id": "e1",
+                    "position_entry_price": "90000",
+                    "position_value_after": "50000",
+                },
+                {
+                    "action": "close",
+                    "side": "short",
+                    "symbol": "BTC",
+                    "trader_id": "aoying",
+                    "trader_name": "熬鹰",
+                    "message_ts": ts,
+                    "event_id": "e2",
+                    "position_value_after": "10000",
+                },
+            ],
+        }
+        body = build_trend_from_franklabs(raw, top=5)
+        self.assertEqual(body["params"]["source"], "franklabs")
+        self.assertEqual(body["wallets"][0]["id"], "aoying")
+        self.assertEqual(body["wallets"][0]["positions"][0]["coin"], "BTC")
+        self.assertEqual(body["today"]["opens"][0]["label"], "开多")
+        self.assertEqual(body["today"]["closes"][0]["label"], "平空")
+        self.assertGreater(body["today"]["opens"][0]["notional"], 0)
+        btc = next(row for row in body["coins"] if row["coin"] == "BTC")
+        self.assertEqual(btc["bias"], "long")
+        # 接口 source=franklabs 无文件时返回空壳，不抛错
+        empty = self.client.get("/api/trend/", {"source": "franklabs", "top": 3}).json()
+        self.assertEqual(empty["params"]["source"], "franklabs")
+        self.assertIn("hint", empty["summary"])
