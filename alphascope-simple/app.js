@@ -622,3 +622,102 @@ function renderLeaderboard(){
   }
 }
 document.addEventListener('DOMContentLoaded', renderLeaderboard);
+
+function biasClass(bias){
+  bias = String(bias || 'neutral');
+  if(bias === 'long') return 'long';
+  if(bias === 'short') return 'short';
+  return 'neutral';
+}
+function biasText(bias){
+  bias = String(bias || 'neutral');
+  if(bias === 'long') return '偏多';
+  if(bias === 'short') return '偏空';
+  return '中性';
+}
+function scoreText(v){
+  var n = Number(v);
+  if(!isFinite(n)) return '—';
+  return (n >= 0 ? '+' : '') + n.toFixed(2);
+}
+function trendFillRow(row){
+  var side = String(row.side || '').includes('short') || String(row.label || '').includes('空') ? 'short' : 'long';
+  return '<div class="trend-row"><div class="left"><b><span class="action ' + side + '">' + esc(row.label || '—') + '</span> ' +
+    esc(row.coin || '') + '</b><span class="tiny">' + esc(row.leader || '') + ' · ' + esc(row.when || '') +
+    '</span></div><strong>' + (row.notional ? formatAmount(row.notional) : '—') + '</strong></div>';
+}
+function paintTrendLive(data){
+  var root = document.getElementById('trend-live');
+  if(!root || !data) return;
+  var summary = data.summary || {};
+  var params = data.params || {};
+  var today = data.today || {};
+  var source = params.source || summary.source || 'auto';
+  var meta = document.getElementById('trend-meta');
+  if(meta){
+    meta.textContent = (source === 'franklabs' ? '冰糖橙实盘' : (source === 'hl' ? '站内 Hyperliquid' : source)) +
+      ' · ' + (data.as_of || data.day || '') +
+      (params.franklabs_fetched_at ? (' · 同步 ' + params.franklabs_fetched_at) : '');
+  }
+  var hint = document.getElementById('trend-hint');
+  if(hint) hint.textContent = summary.hint || '暂无结论';
+  var badges = document.getElementById('trend-badges');
+  if(badges){
+    badges.innerHTML =
+      '<span class="trend-badge ' + biasClass(summary.position_bias) + '">仓位 ' + biasText(summary.position_bias) + ' <b>' + scoreText(summary.position_score) + '</b></span>' +
+      '<span class="trend-badge ' + biasClass(summary.flow_bias) + '">开仓流 ' + biasText(summary.flow_bias) + ' <b>' + scoreText(summary.flow_score) + '</b></span>' +
+      '<span class="trend-badge ' + (summary.agree ? 'long' : 'neutral') + '">' + (summary.agree ? '仓位与开仓同向' : '方向不一致 / 中性') + '</span>' +
+      '<span class="trend-badge">开 ' + (today.open_count || 0) + ' · 平 ' + (today.close_count || 0) + '</span>';
+  }
+  var coins = (data.coins || []).slice(0, 8);
+  var coinBox = document.getElementById('trend-coins');
+  if(coinBox){
+    coinBox.innerHTML = coins.map(function(c){
+      return '<div class="trend-coin"><strong>' + esc(c.coin) +
+        ' <span class="action ' + biasClass(c.bias) + '">' + biasText(c.bias) + '</span></strong>' +
+        '<div class="tiny">score ' + scoreText(c.score) + '</div>' +
+        '<div class="tiny">多 ' + formatAmount(c.long_notional) + ' (' + (c.long_wallets || 0) + ') · 空 ' +
+        formatAmount(c.short_notional) + ' (' + (c.short_wallets || 0) + ')</div></div>';
+    }).join('') || '<div class="tiny">暂无币种汇总</div>';
+  }
+  var opens = document.getElementById('trend-opens');
+  if(opens){
+    var openRows = (today.opens || []).slice(0, 30);
+    opens.innerHTML = openRows.map(trendFillRow).join('') || '<div class="tiny">今日暂无开仓</div>';
+  }
+  var closes = document.getElementById('trend-closes');
+  if(closes){
+    var closeRows = (today.closes || []).slice(0, 30);
+    closes.innerHTML = closeRows.map(trendFillRow).join('') || '<div class="tiny">今日暂无平仓</div>';
+  }
+  var walletsBox = document.getElementById('trend-wallets');
+  if(walletsBox){
+    walletsBox.innerHTML = '<div class="trend-wallets">' + (data.wallets || []).slice(0, 12).map(function(w){
+      var pos = (w.positions || []).slice(0, 8).map(function(p){
+        return '<span class="' + biasClass(p.side) + '">' + esc(p.coin) + ' ' + (p.side === 'short' ? '空' : '多') +
+          (p.value ? (' · ' + formatAmount(p.value)) : '') + '</span>';
+      }).join('') || '<span class="tiny">暂无持仓快照</span>';
+      return '<div class="trend-wallet"><div class="trend-wallet-head"><div><b>' + esc(w.name) +
+        '</b> <span class="tiny">' + esc(w.address || w.id || '') + '</span></div>' +
+        '<span class="trend-badge ' + biasClass(w.bias) + '">' + biasText(w.bias) + '</span></div>' +
+        '<div class="trend-pos">' + pos + '</div></div>';
+    }).join('') + '</div>';
+  }
+}
+function loadTrendLive(force){
+  var root = document.getElementById('trend-live');
+  if(!root) return;
+  var btn = document.getElementById('trend-refresh');
+  if(btn) btn.disabled = true;
+  var meta = document.getElementById('trend-meta');
+  if(meta && force) meta.textContent = '刷新中…';
+  fetch('/api/trend/?top=10&source=auto', {credentials:'same-origin', cache:'no-store'})
+    .then(function(res){ return res.json(); })
+    .then(function(data){ paintTrendLive(data); })
+    .catch(function(){
+      if(meta) meta.textContent = '趋势接口暂时不可用';
+      var hint = document.getElementById('trend-hint');
+      if(hint) hint.textContent = '请确认服务器已部署 /api/trend/，并跑过 franklabs 同步';
+    })
+    .finally(function(){ if(btn) btn.disabled = false; });
+}

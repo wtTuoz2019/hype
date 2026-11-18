@@ -1,1 +1,100 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>综合分析 - AlphaScope</title><link rel="stylesheet" href="style.css"></head><body><header><nav class="nav"><a class="brand" href="index.html">● AlphaScope</a><div class="links"><a href="index.html" class="">开单快讯</a><a href="leaderboard.html">钱包排行榜</a><a href="analysis.html" class="active">综合分析</a><a href="pricing.html" class="">会员中心</a><a href="account.html">个人中心</a></div><div class="tg-account" id="tg-account"><button class="tg-login" type="button" onclick="openTelegramLogin()">Telegram 登录</button></div></nav></header><main><div class="eyebrow">SMART MONEY ALERTS</div><h1>综合分析</h1><p class="sub">想深入了解，再看这里；首页只展示开单快讯。</p><div class="hero"><div><strong>综合分析放在这里，快讯首页不被复杂指标打扰</strong><div class="tiny">当前监控钱包的历史统计</div></div></div><div class="two"><div class="stat"><small>今日开多记录</small><b style="color:#0e976c" id="analysis-long">—</b><span class="tiny">开仓和加仓，按你当前能看到的已记录信号</span></div><div class="stat"><small>今日开空记录</small><b style="color:#d65b5b" id="analysis-short">—</b><span class="tiny" id="analysis-close-note">另有 — 笔平仓记录</span></div></div><section class="panel pad" style="margin-top:20px"><h2>钱包历史表现</h2><div id="wallet-summary"></div><p class="tiny">胜率=盈利的已平仓笔数 / 已平仓总笔数；不考虑仓位大小、手续费及盈亏比。胜率高不保证盈利。</p></section><script> </script><p class="footer">历史胜率不代表未来表现 · 合约交易可能导致本金损失</p></main><script src="telegram-auth.js"></script><script src="app.js"></script><script>document.getElementById("wallet-summary").innerHTML="<ul class=mini-list>"+wallets.map(w=>`<li><span><b>${w.name}</b><div class=tiny>${w.address}</div></span><span><b>${w.win}%</b><div class=tiny>${w.wins}/${w.total} 笔</div></span></li>`).join("")+"</ul>";</script></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>综合分析 - AlphaScope</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <nav class="nav">
+    <a class="brand" href="index.html">● AlphaScope</a>
+    <div class="links">
+      <a href="index.html">开单快讯</a>
+      <a href="leaderboard.html">钱包排行榜</a>
+      <a href="analysis.html" class="active">综合分析</a>
+      <a href="pricing.html">会员中心</a>
+      <a href="account.html">个人中心</a>
+    </div>
+    <div class="tg-account" id="tg-account">
+      <button class="tg-login" type="button" onclick="openTelegramLogin()">Telegram 登录</button>
+    </div>
+  </nav>
+</header>
+<main>
+  <div class="eyebrow">SMART MONEY ALERTS</div>
+  <h1>综合分析</h1>
+  <p class="sub">站内聪明钱 + 冰糖橙实盘采集，方便对照行情方向。</p>
+
+  <section class="panel pad trend-live" id="trend-live">
+    <div class="topline">
+      <div>
+        <h2>实盘趋势参考</h2>
+        <div class="tiny" id="trend-meta">正在读取 /api/trend/ …</div>
+      </div>
+      <button class="btn outline" type="button" id="trend-refresh" onclick="loadTrendLive(true)">刷新</button>
+    </div>
+    <div class="trend-summary" id="trend-summary">
+      <div class="trend-hint" id="trend-hint">—</div>
+      <div class="trend-badges" id="trend-badges"></div>
+    </div>
+    <div class="trend-grid" id="trend-coins"></div>
+    <div class="two trend-flow">
+      <div class="stat">
+        <small>当日开仓（参考源）</small>
+        <div id="trend-opens" class="trend-feed"><div class="tiny">加载中…</div></div>
+      </div>
+      <div class="stat">
+        <small>当日平仓 / 减仓</small>
+        <div id="trend-closes" class="trend-feed"><div class="tiny">加载中…</div></div>
+      </div>
+    </div>
+    <div style="margin-top:18px">
+      <h2 style="font-size:16px">持仓概览</h2>
+      <div id="trend-wallets"></div>
+      <p class="tiny" style="margin-top:10px">有 franklabs 同步时优先显示冰糖橙交易员；否则回退站内 Hyperliquid 榜。仅供观察，不构成交易建议。</p>
+    </div>
+  </section>
+
+  <div class="hero" style="margin-top:20px">
+    <div>
+      <strong>站内监控钱包统计</strong>
+      <div class="tiny">开单快讯同源信号</div>
+    </div>
+  </div>
+  <div class="two">
+    <div class="stat">
+      <small>今日开多记录</small>
+      <b style="color:#0e976c" id="analysis-long">—</b>
+      <span class="tiny">开仓和加仓，按你当前能看到的已记录信号</span>
+    </div>
+    <div class="stat">
+      <small>今日开空记录</small>
+      <b style="color:#d65b5b" id="analysis-short">—</b>
+      <span class="tiny" id="analysis-close-note">另有 — 笔平仓记录</span>
+    </div>
+  </div>
+
+  <section class="panel pad" style="margin-top:20px">
+    <h2>钱包历史表现</h2>
+    <div id="wallet-summary"></div>
+    <p class="tiny">胜率=盈利的已平仓笔数 / 已平仓总笔数；不考虑仓位大小、手续费及盈亏比。胜率高不保证盈利。</p>
+  </section>
+
+  <p class="footer">历史胜率不代表未来表现 · 合约交易可能导致本金损失</p>
+</main>
+<script src="telegram-auth.js"></script>
+<script src="app.js"></script>
+<script>
+document.getElementById("wallet-summary").innerHTML =
+  "<ul class=mini-list>" +
+  wallets.map(function (w) {
+    return "<li><span><b>" + w.name + "</b><div class=tiny>" + w.address + "</div></span>" +
+      "<span><b>" + w.win + "%</b><div class=tiny>" + w.wins + "/" + w.total + " 笔</div></span></li>";
+  }).join("") +
+  "</ul>";
+if (typeof loadTrendLive === "function") loadTrendLive();
+</script>
+</body>
+</html>
