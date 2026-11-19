@@ -234,9 +234,20 @@ def resolve_trader_ids(client: Client, traders_arg: str) -> tuple[str, list[dict
     return ids, all_traders
 
 
-def write_sync(out_dir: Path, *, traders: str, symbol: str, directory: dict, items: list[dict]) -> Path:
+def write_sync(
+    out_dir: Path,
+    *,
+    traders: str,
+    symbol: str,
+    directory: dict,
+    items: list[dict],
+    keep_snaps: int = 0,
+) -> Path:
+    """默认只覆盖 latest.json，避免每 5 分钟落一份 7MB+ 历史。
+
+    keep_snaps>0 时才额外留 events_*.json，并自动删超出份数。
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     payload = {
         "fetched_at": _utc_now(),
         "traders": traders,
@@ -251,23 +262,32 @@ def write_sync(out_dir: Path, *, traders: str, symbol: str, directory: dict, ite
         "items": items,
     }
     latest = out_dir / "latest.json"
-    snap = out_dir / f"events_{stamp}.json"
     text = json.dumps(payload, ensure_ascii=False)
     latest.write_text(text, encoding="utf-8")
-    snap.write_text(text, encoding="utf-8")
+
+    keep = max(0, int(keep_snaps))
+    snap_path = ""
+    if keep > 0:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        snap = out_dir / f"events_{stamp}.json"
+        snap.write_text(text, encoding="utf-8")
+        snap_path = str(snap)
+    # 清理历史：keep=0 全删；keep>0 只留最近 N 份
     snaps = sorted(out_dir.glob("events_*.json"), reverse=True)
-    for old in snaps[48:]:
+    for old in snaps[keep:]:
         try:
             old.unlink()
         except OSError:
             pass
+
     meta = {
         "fetched_at": payload["fetched_at"],
         "count": len(items),
         "traders": traders,
         "symbol": symbol or "*",
         "latest": str(latest),
-        "snapshot": str(snap),
+        "snapshot": snap_path,
+        "keep_snaps": keep,
     }
     (out_dir / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     return latest
@@ -289,6 +309,12 @@ def main() -> int:
     parser.add_argument("--json", dest="out", default="", help="额外写出一份完整 JSON")
     parser.add_argument("--limit-print", type=int, default=12)
     parser.add_argument("--no-snapshots", action="store_true", help="不拉持仓 snapshot")
+    parser.add_argument(
+        "--keep-snaps",
+        type=int,
+        default=0,
+        help="额外保留 events_*.json 份数；默认 0=只覆盖 latest.json 并删光历史",
+    )
     args = parser.parse_args()
 
     if not args.email or not args.password:
@@ -349,8 +375,9 @@ def main() -> int:
             symbol=args.symbol,
             directory=directory,
             items=items,
+            keep_snaps=args.keep_snaps,
         )
-        print(f"synced {path}")
+        print(f"synced {path} (keep_snaps={args.keep_snaps})")
 
     if args.out:
         payload = {
